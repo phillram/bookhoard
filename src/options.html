@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>bookhoard options</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #16181d; --panel: #1f2229; --line: #2e323b; --text: #e6e8ec;
+      --muted: #9aa1ad; --accent: #e4407b; --ok: #5fbf7f; --warn: #e0a84e;
+      font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    body { margin: 0 auto; max-width: 760px; padding: 24px; background: var(--bg); color: var(--text); }
+    h1 { font-size: 20px; margin: 0 0 12px; }
+    h2 { font-size: 13px; margin: 24px 0 8px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+    p { margin: 6px 0; }
+    .muted { color: var(--muted); }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+             padding: 7px 12px; font: inherit; cursor: pointer; }
+    input[type=text], input[type=number], select { background: var(--panel); color: var(--text);
+             border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font: inherit; }
+    input[type=text] { width: 100%; box-sizing: border-box; }
+    input[type=number] { width: 90px; }
+    label { display: block; margin: 10px 0 4px; }
+    label.inline { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+    code, .mono { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-top: 8px; }
+    .panel div { padding: 2px 0; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+    td, th { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; }
+    td:first-child code { cursor: pointer; color: var(--accent); }
+  </style>
+</head>
+<body>
+  <h1>bookhoard</h1>
+
+  <h2>Where to save</h2>
+  <label for="folder">Folder inside your browser's Downloads folder</label>
+  <input type="text" id="folder" placeholder="(leave empty for Downloads itself)">
+  <p class="muted">Use <code>/</code> for folders inside folders, e.g. <code>Libby/Books</code>.
+    Browsers only let extensions save inside the Downloads folder; to use a different drive or
+    folder, change the browser's own download location in its settings.</p>
+
+  <h2>File names</h2>
+  <label for="template">Template</label>
+  <input type="text" id="template" class="mono">
+  <p class="muted">Click a variable below to add it. Put optional parts in <code>&lt; &gt;</code>:
+    they are left out when a variable inside is empty, so
+    <code>&lt;{series} {seriesNumber} - &gt;{title}</code> skips the series for standalone books.
+    A <code>/</code> makes a folder, e.g. <code>{author}/{title}</code>. The extension
+    (<code>.epub</code>, <code>.pdf</code> or <code>.acsm</code>) is added for you.</p>
+  <div class="panel" id="preview"></div>
+  <p id="unknown" class="warn" hidden></p>
+  <p><button class="secondary" id="resetTemplate">Back to “{title} - {author}”</button></p>
+
+  <table>
+    <thead><tr><th>Variable</th><th>What it is</th><th>Example</th></tr></thead>
+    <tbody id="vars"></tbody>
+  </table>
+
+  <h2>Formats</h2>
+  <label for="formatOrder">Which format to pick</label>
+  <select id="formatOrder">
+    <option value="epub-pdf">EPUB, or PDF when there is no EPUB</option>
+    <option value="epub">EPUB only</option>
+    <option value="pdf-epub">PDF, or EPUB when there is no PDF</option>
+  </select>
+
+  <h2>Other</h2>
+  <label for="conflict">When a file with that name already exists</label>
+  <select id="conflict">
+    <option value="uniquify">Keep both (adds a number)</option>
+    <option value="overwrite">Replace it</option>
+  </select>
+  <label class="inline"><input type="checkbox" id="skipDownloaded">
+    Skip loans already in the browser's download history</label>
+  <label class="inline"><input type="checkbox" id="includeLocked">
+    Also try loans whose card says Open In Libby or Open Book</label>
+  <label class="inline">Download at most <input type="number" id="limit" min="0" placeholder="all"> books per run</label>
+
+  <p id="saved" class="ok"></p>
+  <script src="options.js" type="module"></script>
+</body>
+</html>
