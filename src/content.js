@@ -440,17 +440,24 @@
       const order = { 'epub-pdf': ['EPUB', 'PDF'], epub: ['EPUB'], 'pdf-epub': ['PDF', 'EPUB'] }[settings.formatOrder || 'epub-pdf'];
       const skipDownloaded = settings.skipDownloaded !== false;
       const max = Number(settings.limit) > 0 ? Number(settings.limit) : Infinity;
-      // A break after every few books keeps OverDrive from refusing downloads.
+      // A break after every few books keeps OverDrive from refusing downloads. The count is saved,
+      // not kept per run, so Pause, Stop or starting again can't skip a break that is due, and time
+      // spent stopped counts toward it. Firefox fetches each book twice, so its books count double.
       const batchSize = Math.max(1, Number(settings.batchSize ?? 10) || 10);
       let batchPauseMs = Math.max(0, Number(settings.batchPause ?? 60)) * 1000;
-      let sinceBreak = 0;
+      const perBook = (await ask({ type: 'requestsPerBook' })) || 1;
+      const breakAt = batchSize * perBook;  // requests between breaks
+      const getPace = async () => (await api.storage.local.get('pace')).pace || { count: 0, lastAt: 0 };
+      const setPace = pace => api.storage.local.set({ pace });
       const runStart = Date.now();
       let lastLimit = 0;
       const retried = new Set();
       // Wait with a countdown, but give up early if Stop is pressed.
       const pauseFor = async (ms, why) => {
         for (const end = Date.now() + ms; Date.now() < end && !stopRequested; await sleep(250)) {
-          render(`${why} (carrying on in ${Math.ceil((end - Date.now()) / 1000)}s) ${count()}`);
+          const left = Math.ceil((end - Date.now()) / 1000);
+          render(paused ? `Paused. The break still counts down: ${left}s left. ${count()}`
+            : `${why} (carrying on in ${left}s) ${count()}`);
         }
         if (!stopRequested) render(`Working… ${count()}`);
       };
@@ -461,10 +468,28 @@
         if (!hit) return false;
         lastLimit = hit.at;
         batchPauseMs = Math.max(batchPauseMs, 60000);
-        sinceBreak = 0;
         fail('download server said "too many requests"; waiting a minute');
         await pauseFor(60000, 'OverDrive said "too many requests". Waiting a minute');
+        await setPace({ count: 0, lastAt: Date.now() });
         return true;
+      };
+      // Before each book: take the break if one is due. Time since the last download already counts,
+      // and a gap at least as long as the break resets the count.
+      const takeBreakIfDue = async () => {
+        const pace = await getPace();
+        const idle = Date.now() - pace.lastAt;
+        if (!batchPauseMs || idle >= batchPauseMs) {
+          if (pace.count) await setPace({ count: 0, lastAt: pace.lastAt });
+          return;
+        }
+        if (pace.count < breakAt) return;
+        log(`  taking a break: ${pace.count / perBook} books since the last one`);
+        await pauseFor(batchPauseMs - idle, `Pausing so OverDrive doesn't refuse downloads.`);
+        if (!stopRequested) await setPace({ count: 0, lastAt: pace.lastAt });
+      };
+      const countDownload = async () => {
+        const pace = await getPace();
+        await setPace({ count: pace.count + perBook, lastAt: Date.now() });
       };
       const optionRe = name => new RegExp('^' + name + '\\b');
 
@@ -502,6 +527,8 @@
           note(loan, `no ${order.join(' or ')}, skipped`);
           continue;
         }
+        await takeBreakIfDue();
+        if (stopRequested) { ending = 'Stopped.'; break; }
         try {
           await api.storage.local.set({ inFlight: { title: loan.title, id: loan.id, at: Date.now() } });
           const problem = await openHowToOpen(loan);
@@ -574,12 +601,8 @@
           }
           log(`  download started after ${((Date.now() - since) / 1000).toFixed(1)}s`);
           note(loan, format, true);
-          sinceBreak++;
-          if (!(await checkRateLimit()) && batchPauseMs && sinceBreak >= batchSize) {
-            sinceBreak = 0;
-            log(`  taking a ${batchPauseMs / 1000}s break after ${batchSize} books`);
-            await pauseFor(batchPauseMs, `Pausing so OverDrive doesn't refuse downloads.`);
-          }
+          await countDownload();
+          await checkRateLimit();
         } catch (err) {
           fail(`${loan.title}:`, err);
           note(loan, 'error: ' + err.message);

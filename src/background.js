@@ -263,6 +263,10 @@ api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const { rateLimited } = await sessionStore.get('rateLimited');
         return rateLimited && rateLimited.at >= msg.since ? rateLimited : null;
       }
+      case 'requestsPerBook': {
+        // Firefox fetches each book twice (once by Libby, once under the right name).
+        return api.downloads.onDeterminingFilename ? 1 : 2;
+      }
       case 'names': {
         const { names = [] } = await sessionStore.get('names');
         return names;
