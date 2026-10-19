@@ -2,7 +2,7 @@ import { DEFAULTS, VARIABLES, SAMPLE, buildPath, unknownVariables } from './temp
 
 const api = globalThis.browser ?? globalThis.chrome;
 const $ = id => document.getElementById(id);
-const FIELDS = ['folder', 'template', 'formatOrder', 'conflict', 'skipDownloaded', 'limit', 'batchPause', 'batchSize', 'debug'];
+const FIELDS = ['folder', 'template', 'formatOrder', 'conflict', 'batchPause', 'batchSize', 'debug'];
 
 // A second example with no series and a DRM-free PDF, to show optional parts dropping out.
 const STANDALONE = {
@@ -18,7 +18,7 @@ function current() {
     const el = $(f);
     if (el.type === 'checkbox') s[f] = el.checked;
     else if (el.type !== 'number') s[f] = el.value;
-    // A cleared box means the default ("all" for the limit), not 0, which would mean "never pause".
+    // A cleared box means the default, not 0, which would mean "never pause".
     else s[f] = el.value.trim() === '' ? DEFAULTS[f] : Math.max(Number(el.min) || 0, Number(el.value) || 0);
   }
   if (!s.template.trim()) s.template = DEFAULTS.template;
@@ -73,8 +73,7 @@ async function init() {
   for (const f of FIELDS) {
     const el = $(f);
     if (el.type === 'checkbox') el.checked = !!s[f];
-    // "Download at most" shows blank for no limit; the wait shows its number, including 0.
-    else el.value = f === 'limit' ? (s[f] || '') : s[f];
+    else el.value = s[f];
   }
   // Each field is a button: click to add it to the name pattern. Hover shows an example.
   $('vars').replaceChildren(...VARIABLES.map(([name, what, example]) => {

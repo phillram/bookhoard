@@ -268,7 +268,7 @@
   let mode = 'download';  // which footer button started the current run
   let choose = null;      // while the panel is asking a question: call with the answer
   let choices = [];       // [{ label, value }] buttons shown for that question
-  let onPickChange = null;  // while picking books to return: refreshes the count and button
+  let onPickChange = null;  // while picking books: refreshes the count and button
 
   // A download-tray icon drawn like Libby's own footer icons (64x64, same classes, so Libby's
   // light and dark themes color it the same way).
@@ -388,6 +388,8 @@
         .pick-row input { accent-color: #2a9d8f; margin: 0; flex: none; }
         .pick-row .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .pick-row .nd { flex: none; color: #e3b25a; font-size: 12px; }
+        .pick-row .nd.muted { color: #8a8a8a; }
+        .pick-quick { display: contents; }
         .status { white-space: pre-line; }
         .row { height: 24px; line-height: 24px; font-size: 13px; white-space: nowrap; overflow: hidden;
                text-overflow: ellipsis; }
@@ -401,8 +403,7 @@
         <div class="list"></div>
         <div class="picker" hidden>
           <div class="pick-tools">
-            <button data-pick="all">All</button><button data-pick="downloaded">Downloaded</button><button data-pick="none">None</button>
-            <span class="pick-count"></span>
+            <span class="pick-quick"></span><span class="pick-count"></span>
           </div>
           <div class="pick-list"></div>
         </div>
@@ -417,15 +418,8 @@
            copy: root.querySelector('.copy'), stop: root.querySelector('.stop'), pause: root.querySelector('.pause'),
            list: root.querySelector('.list'), close: root.querySelector('.close'),
            choices: root.querySelector('.choices'), picker: root.querySelector('.picker'),
-           pickList: root.querySelector('.pick-list'), pickCount: root.querySelector('.pick-count') };
-    for (const b of root.querySelectorAll('[data-pick]')) {
-      b.addEventListener('click', () => {
-        for (const box of ui.pickList.querySelectorAll('input')) {
-          box.checked = b.dataset.pick === 'all' || (b.dataset.pick === 'downloaded' && box.dataset.downloaded === '1');
-        }
-        onPickChange?.();
-      });
-    }
+           pickList: root.querySelector('.pick-list'), pickCount: root.querySelector('.pick-count'),
+           pickQuick: root.querySelector('.pick-quick') };
     ui.close.addEventListener('click', () => { resumeCancelled = true; panelOpen = false; results = []; render(''); });
     ui.copy.addEventListener('click', () => copyReport().catch(err => fail('copy log failed:', err)));
     ui.stop.addEventListener('click', requestStop);
@@ -490,38 +484,48 @@
     }
   }
 
-  // List every loan with a checkbox and wait for "Return N" (the ticked loans) or Cancel (null).
-  // Downloaded books start ticked; ones not downloaded are marked and start unticked.
-  function askPick(status, loans, notDownloaded) {
-    const boxes = loans.map(loan => {
+  // List every loan with a checkbox and wait for the action button (the ticked loans) or Cancel
+  // (null). rows: [{ loan, ticked, tag, muted }]. quick: [{ id, label, pick: row => ticked? }].
+  function askPick(status, rows, quick, action) {
+    const boxes = rows.map(r => {
       const row = document.createElement('label');
       row.className = 'pick-row';
-      row.title = loan.title;
+      row.title = r.loan.title;
       const box = document.createElement('input');
       box.type = 'checkbox';
-      box.dataset.downloaded = notDownloaded.has(loan.id) ? '0' : '1';
-      box.checked = box.dataset.downloaded === '1';
+      box.checked = r.ticked;
       const t = document.createElement('span');
       t.className = 't';
-      t.textContent = loan.title;
+      t.textContent = r.loan.title;
       row.append(box, t);
-      if (notDownloaded.has(loan.id)) {
-        const nd = document.createElement('span');
-        nd.className = 'nd';
-        nd.textContent = 'not downloaded';
-        row.append(nd);
+      if (r.tag) {
+        const tag = document.createElement('span');
+        tag.className = r.muted ? 'nd muted' : 'nd';
+        tag.textContent = r.tag;
+        row.append(tag);
       }
       box.addEventListener('change', () => onPickChange?.());
-      return [loan, box, row];
+      return { ...r, box, row };
     });
-    ui.pickList.replaceChildren(...boxes.map(([, , row]) => row));
+    ui.pickList.replaceChildren(...boxes.map(b => b.row));
     ui.pickList.scrollTop = 0;
+    ui.pickQuick.replaceChildren(...quick.map(q => {
+      const b = document.createElement('button');
+      b.textContent = q.label;
+      b.dataset.pick = q.id;
+      b.addEventListener('click', () => {
+        for (const r of boxes) r.box.checked = q.pick(r);
+        onPickChange?.();
+      });
+      return b;
+    }));
     return new Promise(resolve => {
-      const ticked = () => boxes.filter(([, box]) => box.checked).map(([loan]) => loan);
+      const ticked = () => boxes.filter(r => r.box.checked).map(r => r.loan);
       onPickChange = () => {
         const k = ticked().length;
-        ui.pickCount.textContent = `${k} of ${loans.length} ticked`;
-        choices = [{ label: `Return ${k}`, value: 'go', danger: true, disabled: !k }, { label: 'Cancel', value: null }];
+        ui.pickCount.textContent = `${k} of ${rows.length} ticked`;
+        choices = [{ label: action.label(k), value: 'go', danger: action.danger, disabled: !k },
+                   { label: 'Cancel', value: null }];
         render('');
       };
       choose = value => {
@@ -656,7 +660,7 @@
           '(× to cancel)');
         await sleep(1000);
       }
-      run().catch(err => fail('run failed:', err));
+      run({ resume: true }).catch(err => fail('run failed:', err));
       return;
     } else {
       const what = onAccountScreen() ? `switched to its ${location.pathname} screen` : 'reloaded the page';
@@ -669,7 +673,7 @@
     render(message);
   }
 
-  async function run() {
+  async function run({ resume = false } = {}) {
     running = true;
     mode = 'download';
     panelOpen = true;
@@ -700,8 +704,6 @@
       const { settings = {} } = await api.storage.local.get('settings');
       log('run started; settings:', settings);
       const order = { 'epub-pdf': ['EPUB', 'PDF'], epub: ['EPUB'], 'pdf-epub': ['PDF', 'EPUB'] }[settings.formatOrder || 'epub-pdf'];
-      const skipDownloaded = settings.skipDownloaded !== false;
-      const max = Number(settings.limit) > 0 ? Number(settings.limit) : Infinity;
       // A break after every few books keeps OverDrive from refusing downloads. The count is saved,
       // not kept per run, so Pause, Stop or starting again can't skip a break that is due, and time
       // spent stopped counts toward it. Firefox fetches each book twice, so its books count double.
@@ -763,11 +765,43 @@
       };
       const optionRe = name => new RegExp('^' + name + '\\b');
 
-      const shelf = readShelf();
+      // Which books: ticked in the list (new ones start ticked), or after Libby reloaded the page
+      // mid-run, the same choice as before.
+      const loans = readShelf();
+      const audio = loan => /audiobook/i.test(loan.main);
+      let todo;
+      const { downloadChoice } = await api.storage.local.get('downloadChoice');
+      if (resume && downloadChoice) {
+        todo = loans.filter(l => downloadChoice.includes(l.id));
+      } else {
+        const done = new Set();
+        for (const loan of loans) {
+          if (await ask({ type: 'downloaded', overdriveId: loan.titleId })) done.add(loan.id);
+        }
+        const fresh = r => !done.has(r.loan.id) && !audio(r.loan);
+        const rows = loans.map(loan => ({
+          loan, ticked: fresh({ loan }),
+          tag: audio(loan) ? 'audiobook' : done.has(loan.id) ? 'downloaded' : '', muted: true,
+        }));
+        let question = 'Tick the books to download.';
+        if (done.size) {
+          question += `\n${done.size} ${done.size === 1 ? 'was' : 'were'} downloaded before, so ` +
+            `${done.size === 1 ? 'it starts' : 'they start'} unticked.`;
+        }
+        todo = await askPick(question, rows,
+          [{ id: 'all', label: 'All', pick: () => true },
+           { id: 'new', label: 'Not downloaded', pick: fresh },
+           { id: 'none', label: 'None', pick: () => false }],
+          { label: k => `Download ${k}`, danger: false });
+        if (!todo) { ending = 'Cancelled.'; return; }
+        await api.storage.local.set({ downloadChoice: todo.map(l => l.id) });
+      }
       let lost = false;
-      log(`${shelf.length} loans on the shelf`);
-      for (let i = 0; i < shelf.length; i++) {
-        const loan = shelf[i];
+      log(`${loans.length} loans on the shelf; downloading ${todo.length}${resume ? ' (carrying on)' : ''}:`,
+        todo.map(l => l.title));
+      render(`Working… ${count()}`);
+      for (let i = 0; i < todo.length; i++) {
+        const loan = todo[i];
         // Paused: the current book has finished, so say so, and wait for Resume or Stop.
         if (paused && !stopRequested) {
           render(`Paused. ${count()}. Press Resume to carry on.`);
@@ -781,10 +815,10 @@
           fail(ending, 'Screen shows:', onScreen());
           break;
         }
-        if (downloaded >= max) break;
-        if (/audiobook/i.test(loan.main)) { note(loan, 'audiobook, skipped'); continue; }
-        // Only finished downloads count, so one that failed is simply tried again next time.
-        if (skipDownloaded && (await ask({ type: 'downloaded', overdriveId: loan.titleId }))) {
+        if (audio(loan)) { note(loan, 'audiobook, skipped'); continue; }
+        // Carrying on after a reload: what finished before it is done. (A book ticked by hand is
+        // downloaded even if it was before.)
+        if (resume && (await ask({ type: 'downloaded', overdriveId: loan.titleId }))) {
           note(loan, 'already downloaded');
           continue;
         }
@@ -946,7 +980,13 @@
         question += `\n${notDownloaded.length} ${notDownloaded.length === 1 ? "isn't" : "aren't"} downloaded in ` +
           'this browser, so they start unticked.';
       }
-      const todo = await askPick(question, loans, new Set(notDownloaded.map(l => l.id)));
+      const nd = new Set(notDownloaded.map(l => l.id));
+      const todo = await askPick(question,
+        loans.map(loan => ({ loan, ticked: !nd.has(loan.id), tag: nd.has(loan.id) ? 'not downloaded' : '' })),
+        [{ id: 'all', label: 'All', pick: () => true },
+         { id: 'downloaded', label: 'Downloaded', pick: r => !nd.has(r.loan.id) },
+         { id: 'none', label: 'None', pick: () => false }],
+        { label: k => `Return ${k}`, danger: true });
       if (!todo) { ending = 'Cancelled. Nothing was returned.'; return; }
       log(`returning ${todo.length} of ${loans.length} loans:`, todo.map(l => l.title));
       render(`Returning… ${count()}`);

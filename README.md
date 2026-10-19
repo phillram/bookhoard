@@ -35,7 +35,11 @@ Firefox removes it when you close the browser, so you'll need to do this again n
 
 1. Open your loans at [libbyapp.com/shelf/loans](https://libbyapp.com/shelf/loans).
 2. Click **Download** at the bottom.
-3. If your browser asks about downloading several files, click **Allow**.
+3. Tick the books you want, then click **Download**. Books you haven't downloaded yet are already
+   ticked.
+4. If your browser asks about downloading several files, click **Allow**.
+
+![The Download list with a checkbox for each book](docs/download.png)
 
 A panel shows how it's going. You can **Pause** or **Stop** at any time.
 
@@ -67,8 +71,8 @@ saved, and which format to get.
   how Libby works.
 - Audiobooks are skipped, and so are books Libby only lets you read in its app or on Kindle.
 - After updating bookhoard, reload your Libby tab.
-- Books bookhoard has downloaded before are skipped, even if you've moved the files. Untick
-  **Skip books already downloaded** in the options to get them again.
+- bookhoard remembers what it has downloaded, even after you move the files, so those books start
+  unticked next time.
 
 ## Something not working?
 

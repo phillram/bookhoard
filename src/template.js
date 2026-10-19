@@ -8,8 +8,6 @@ export const DEFAULTS = {
   template: '{title} - {author}',
   formatOrder: 'epub-pdf',         // 'epub-pdf' | 'epub' | 'pdf-epub'
   conflict: 'uniquify',            // 'uniquify' | 'overwrite'
-  skipDownloaded: true,
-  limit: 0,                        // most books per run; 0 = no limit
   batchSize: 10,                   // pause after this many books...
   batchPause: 120,                 // ...for this many seconds (0 = never pause)
   debug: false,                    // log every step to the console
