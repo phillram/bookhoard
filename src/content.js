@@ -100,7 +100,9 @@
   // directly makes Libby reload, and in some browsers send you to its "Back Up Your Data" screen.
 
   const sheetOpen = () => topEls(/^(return early|renew loan)$/i).length > 0;
-  const onShelf = () => readShelf().length > 0 && !sheetOpen() && !topEls(HOW_TO_OPEN).length;
+  // Libby keeps the shelf's cards in the page behind other screens, so the address is what tells
+  // us the shelf is really showing: /shelf or /shelf/loans (How to open is .../fulfill).
+  const onShelf = () => /^\/shelf(\/loans)?\/?$/.test(location.pathname) && !sheetOpen() && readShelf().length > 0;
 
   async function shelfReady() {
     for (let i = 0; i < 30; i++) {
@@ -116,7 +118,8 @@
     for (let k = 0; k < 6; k++) {
       if (onAccountScreen()) return false;
       if (onShelf()) return true;
-      const close = topEls(/^(done|back|dismiss dialog|close)$/i)[0];
+      // Prefer Done, then the sheet's own close buttons, then Back.
+      const close = [/^done$/i, /^(dismiss dialog|close)$/i, /^back$/i].map(re => topEls(re)[0]).find(Boolean);
       if (close) press(close);
       else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
       for (let w = 0; w < 30 && !onShelf(); w++) await sleep(100);
@@ -134,6 +137,7 @@
 
   // Manage Loan -> Read With... -> the How to open screen. Returns null on success, or why not.
   async function openHowToOpen(loan) {
+    if (!onShelf() && !(await backToShelf())) return 'could not get back to the shelf first';
     const card = readShelf().find(l => l.id === loan.id)?.card;
     if (!card) return 'its card is not on the shelf';
     card.scrollIntoView({ block: 'center' });
@@ -192,10 +196,17 @@
       Object.assign(navBtn.querySelector('svg').style, { width: cs.width, height: cs.height });
     }
     navBtn.addEventListener('click', () => {
-      if (running) { stopRequested = true; render('Stopping after this book…'); }
+      if (running) requestStop();
       else run().catch(err => fail('run failed:', err));
     });
     bar.append(navBtn);
+  }
+
+  function requestStop() {
+    if (!running) return;
+    stopRequested = true;
+    log('stop requested');
+    render('Stopping after this book…');
   }
 
   function buildPanel() {
@@ -213,7 +224,7 @@
         .status { color: #b8b8b8; flex: 1; min-width: 0; }
         .actions { flex-shrink: 0; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
         .close { background: none; border: 0; color: #b8b8b8; font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px; }
-        .copy { background: #2a2a2a; border: 1px solid #3a3a3a; color: #d0d0d0; border-radius: 6px;
+        .stop, .copy { background: #2a2a2a; border: 1px solid #3a3a3a; color: #d0d0d0; border-radius: 6px;
                 font-size: 12px; padding: 2px 8px; cursor: pointer; white-space: nowrap; }
         .row { padding: 3px 0; border-top: 1px solid #333; font-size: 13px; }
         .ok { color: #8fcf9f; }
@@ -221,15 +232,16 @@
       </style>
       <div class="panel" hidden>
         <div class="top"><span class="status"></span>
-          <span class="actions"><button class="copy">Copy log</button><button class="close" title="Close">&times;</button></span></div>
+          <span class="actions"><button class="stop">Stop</button><button class="copy">Copy log</button><button class="close" title="Close">&times;</button></span></div>
         <div class="list"></div>
       </div>`;
     document.body.append(host);
     ui = { panel: root.querySelector('.panel'), status: root.querySelector('.status'), root,
-           copy: root.querySelector('.copy'),
+           copy: root.querySelector('.copy'), stop: root.querySelector('.stop'),
            list: root.querySelector('.list'), close: root.querySelector('.close') };
     ui.close.addEventListener('click', () => { panelOpen = false; results = []; render(''); });
     ui.copy.addEventListener('click', () => copyReport().catch(err => fail('copy log failed:', err)));
+    ui.stop.addEventListener('click', requestStop);
   }
 
   function render(status) {
@@ -238,6 +250,8 @@
     if (status) ui.status.textContent = status;
     ui.close.hidden = running;
     ui.copy.hidden = running;
+    ui.stop.hidden = !running;
+    ui.stop.disabled = stopRequested;
     ui.list.replaceChildren(...results.slice().reverse().map(r => {
       const row = document.createElement('div');
       row.className = 'row';
@@ -339,8 +353,8 @@
     if (!inFlight) return;
     await api.storage.local.remove('inFlight');
     if (Date.now() - inFlight.at > 2 * 60 * 1000) return;
-    const where = onAccountScreen() ? `its ${location.pathname} screen` : 'a reload of the page';
-    const message = `While opening "${inFlight.title}", Libby switched to ${where}, so bookhoard stopped. ` +
+    const what = onAccountScreen() ? `switched to its ${location.pathname} screen` : 'reloaded the page';
+    const message = `While opening "${inFlight.title}", Libby ${what}, so bookhoard stopped. ` +
       "It hasn't clicked anything since. Finish or close that screen in Libby, then try again.";
     fail(message);
     syncUi();
