@@ -2,8 +2,8 @@
 
 Download all your Libby loans at once.
 
-bookhoard adds a **Download loans** button to your Libby shelf. Click it and it saves every loan
-as an EPUB (or PDF), named like `Children of Time - Adrian Tchaikovsky`.
+bookhoard adds a **Download** button to Libby's footer, next to Tags. Click it and it saves every
+loan as an EPUB (or PDF), named like `Children of Time - Adrian Tchaikovsky`.
 
 ## Install
 
@@ -23,7 +23,7 @@ as an EPUB (or PDF), named like `Children of Time - Adrian Tchaikovsky`.
 ## Use
 
 1. Open [libbyapp.com/shelf/loans](https://libbyapp.com/shelf/loans).
-2. Click **Download loans** in the bottom right.
+2. Click **Download** in the footer. Click it again (it says **Stop**) to stop.
 
 If your browser asks about downloading multiple files, say yes.
 
