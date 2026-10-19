@@ -9,7 +9,9 @@
   const api = globalThis.browser ?? globalThis.chrome;
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const txt = el => (el?.innerText || el?.getAttribute?.('aria-label') || '').trim().replace(/\s+/g, ' ');
-  const NEVER = /return|renew|suspend|cancel|delete|remove/i;
+  const NEVER = /return|renew|suspend|cancel|delete|remove|passkey|sign out|log out|forget|unlink/i;
+  // Libby's sign-in, backup and passkey screens live under /interview. bookhoard never acts there.
+  const onAccountScreen = () => location.pathname.startsWith('/interview');
   let host = null;    // the progress panel's container
   let navBtn = null;  // our footer button
   // (both are kept out of every search below, so the run never clicks its own controls)
@@ -38,6 +40,7 @@
   };
   const press = el => {
     const label = txt(el);
+    if (onAccountScreen()) throw new Error('on a Libby account screen; not clicking ' + label);
     if (NEVER.test(label)) throw new Error('refused to click ' + label);
     el.click();
     return label;
@@ -294,6 +297,26 @@
 
   // ---- The download run -----------------------------------------------------------------------
 
+  const ACCOUNT_SCREEN_STOP =
+    "Libby switched to one of its sign-in or backup screens, so bookhoard stopped. " +
+    "It hasn't clicked anything there. Finish or close that screen in Libby, then try again.";
+
+  // Libby sometimes reloads the whole page (for example to its "Back Up Your Data" screen), which
+  // ends a run without warning. If that happened while a loan was being opened, say so.
+  async function explainInterruptedRun() {
+    const { inFlight } = await api.storage.local.get('inFlight');
+    if (!inFlight) return;
+    await api.storage.local.remove('inFlight');
+    if (Date.now() - inFlight.at > 2 * 60 * 1000) return;
+    const where = onAccountScreen() ? `its ${location.pathname} screen` : 'a reload of the page';
+    const message = `While opening "${inFlight.title}", Libby switched to ${where}, so bookhoard stopped. ` +
+      "It hasn't clicked anything since. Finish or close that screen in Libby, then try again.";
+    fail(message);
+    syncUi();
+    panelOpen = true;
+    render(message);
+  }
+
   async function run() {
     running = true;
     panelOpen = true;
@@ -335,6 +358,7 @@
       log(`${shelf.length} loans on the shelf, ${shelf.filter(l => doneIds.has(l.id)).length} done in earlier runs`);
       for (const loan of shelf) {
         if (stopRequested) { ending = 'Stopped.'; break; }
+        if (onAccountScreen()) { ending = ACCOUNT_SCREEN_STOP; fail(ending, location.pathname); break; }
         if (downloaded >= max) break;
         if (doneIds.has(loan.id)) continue;
         if (/audiobook/i.test(loan.main)) { note(loan, 'audiobook, skipped'); continue; }
@@ -352,8 +376,14 @@
           continue;
         }
         try {
+          await api.storage.local.set({ inFlight: { title: loan.title, id: loan.id, at: Date.now() } });
           go(`/shelf/loans/${loan.id}/fulfill`);
           let ready = await waitTop(HOW_TO_OPEN, 3000);
+          if (onAccountScreen()) {
+            ending = ACCOUNT_SCREEN_STOP;
+            fail(`${loan.title}: Libby went to ${location.pathname} instead of How to open`);
+            break;
+          }
           if (!ready) {
             log('  How to open did not open directly; trying Manage Loan. Screen shows:', onScreen());
             go('/shelf/loans');
@@ -401,14 +431,18 @@
           fail(`${loan.title}:`, err);
           note(loan, 'error: ' + err.message);
         } finally {
-          go('/shelf/loans');
-          await sleep(300);
+          await api.storage.local.remove('inFlight');
+          if (!onAccountScreen()) {
+            go('/shelf/loans');
+            await sleep(300);
+          }
         }
       }
     } catch (err) {
       fail('run failed:', err);
       ending = 'Something went wrong: ' + err.message;
     } finally {
+      await api.storage.local.remove('inFlight');
       log('run finished:', ending, count());
       running = false;
       render(results.length ? `${ending} ${count()}.` : ending);
@@ -418,4 +452,5 @@
 
   syncUi();
   setInterval(syncUi, 500);
+  explainInterruptedRun().catch(err => fail('could not check the last run:', err));
 })();
