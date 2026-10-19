@@ -1369,11 +1369,14 @@
     results = [];
     let borrowed = 0;
     let held = 0;
-    const count = () => `${borrowed} borrowed, ${held} holds, ${results.length - borrowed - held} not`;
+    let had = 0;  // already on your shelf by the time its turn came
+    const count = () => `${borrowed} borrowed, ${held} holds` + (had ? `, ${had} already yours` : '') +
+      `, ${results.length - borrowed - held - had} not`;
     const note = (book, result, ok = false) => {
       log(`${book.title} [${book.titleId}]: ${result}`);
       results.push({ title: book.title, result, ok });
-      if (ok && /hold/.test(result)) held++;
+      if (ok && /^already/.test(result)) had++;
+      else if (ok && /hold/.test(result)) held++;
       else if (ok) borrowed++;
       render(stopRequested ? `Stopping… ${count()}` : paused ? `Pausing after this book… ${count()}` : `Borrowing… ${count()}`);
     };
@@ -1402,6 +1405,7 @@
       log(`borrowing ${todo.length} of ${books.length}:`, todo.map(b => b.title));
       render(`Borrowing… ${count()}`);
 
+      let failedInARow = 0;
       for (let i = 0; i < todo.length; i++) {
         const book = todo[i];
         if (paused && !stopRequested) {
@@ -1410,6 +1414,11 @@
           if (!stopRequested) render(`Borrowing… ${count()}`);
         }
         if (stopRequested) { ending = 'Stopped.'; break; }
+        // Libby refusing twice running (a loan limit, or it slowing down): stop rather than keep trying.
+        if (failedInARow >= 2) {
+          ending = "Couldn't borrow two books in a row, so bookhoard stopped. Copy log has the details.";
+          break;
+        }
         try {
           interruptible = true;
           const r = await borrowOne(book, listPath);
@@ -1426,11 +1435,13 @@
             continue;
           }
           note(book, r.ok ? r.result : `not borrowed: ${r.result}`, !!r.ok);
+          failedInARow = r.ok ? 0 : failedInARow + 1;
           if (r.limit) { ending = `Libby says: ${r.result}`; break; }
         } catch (err) {
           if (err instanceof StopNow) { ending = 'Stopped.'; break; }
           fail(`${book.title}:`, err);
           note(book, 'error: ' + err.message);
+          failedInARow++;
         } finally {
           interruptible = false;
         }
