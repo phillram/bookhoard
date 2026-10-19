@@ -421,7 +421,7 @@
       const order = { 'epub-pdf': ['EPUB', 'PDF'], epub: ['EPUB'], 'pdf-epub': ['PDF', 'EPUB'] }[settings.formatOrder || 'epub-pdf'];
       const skipDownloaded = settings.skipDownloaded !== false;
       const max = Number(settings.limit) > 0 ? Number(settings.limit) : Infinity;
-      let gapMs = Math.max(0, Number(settings.delay ?? 3)) * 1000;
+      let gapMs = Math.max(0, Number(settings.delay ?? 0)) * 1000;
       const runStart = Date.now();
       let lastLimit = 0;
       const retried = new Set();

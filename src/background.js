@@ -156,6 +156,13 @@ if (api.downloads.onDeterminingFilename) {
 
 api.action.onClicked.addListener(() => api.runtime.openOptionsPage());
 
+// 0.1.7 and 0.1.8 defaulted to a 3-second wait between books; the default is now none.
+api.runtime.onInstalled.addListener(async ({ reason, previousVersion }) => {
+  if (reason !== 'update' || !['0.1.7', '0.1.8'].includes(previousVersion)) return;
+  const { settings } = await api.storage.local.get('settings');
+  if (settings?.delay === 3) await api.storage.local.set({ settings: { ...settings, delay: 0 } });
+});
+
 api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
     switch (msg?.type) {

@@ -57,8 +57,9 @@ Click the bookhoard icon in your toolbar.
   only adds the series for books that have one. Use `/` for folders, like `{author}/{title}`.
 - **Format**: EPUB first, EPUB only, or PDF first.
 - **Download at most**: handy for trying it out on a few books first.
-- **Wait between books**: 3 seconds by default. OverDrive's download server refuses requests that come
-  too fast; if it does anyway, bookhoard waits a minute, slows down and tries that book again.
+- **Wait between books**: no extra wait by default. If OverDrive's download server says "too many
+  requests", bookhoard waits a minute, slows down and tries that book again. If that keeps happening,
+  set a few seconds here.
 
 ## Something not working?
 
