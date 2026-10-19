@@ -232,21 +232,31 @@
         .panel { pointer-events: auto; width: min(380px, 90vw);
                  background: #1c1c1c; color: #e0e0e0; border: 1px solid #333; border-radius: 10px;
                  padding: 10px 12px; box-shadow: 0 4px 18px rgba(0,0,0,.5); }
-        .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 6px; }
-        .status { color: #b8b8b8; flex: 1; min-width: 0; }
-        .actions { flex-shrink: 0; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+        .status { color: #b8b8b8; margin-bottom: 6px; }
+        /* The list is always exactly 5 one-line rows tall and the buttons sit along the bottom edge,
+           so nothing shifts while results come in and every click lands where you aimed. */
+        .list { height: calc(5 * 24px); overflow: hidden; }
+        .bar { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px;
+               border-top: 1px solid #333; }
+        .bar .close { margin-left: auto; }
         .close { background: none; border: 0; color: #b8b8b8; font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px; }
         .pause, .stop, .copy { background: #2a2a2a; border: 1px solid #3a3a3a; color: #d0d0d0; border-radius: 6px;
-                font-size: 12px; padding: 2px 8px; cursor: pointer; white-space: nowrap; }
-        .row { padding: 3px 0; border-top: 1px solid #333; font-size: 13px; }
+                font-size: 13px; padding: 4px 12px; cursor: pointer; white-space: nowrap; }
+        .pause:hover, .stop:hover, .copy:hover { border-color: #2a9d8f; }
+        .row { height: 24px; line-height: 24px; font-size: 13px; white-space: nowrap; overflow: hidden;
+               text-overflow: ellipsis; }
+        .row + .row { border-top: 1px solid #2a2a2a; }
         .ok { color: #8fcf9f; }
         .more { color: #8a8a8a; font-size: 12px; padding-top: 4px; }
         .skip { color: #8a8a8a; }
       </style>
       <div class="panel" hidden>
-        <div class="top"><span class="status"></span>
-          <span class="actions"><button class="pause">Pause</button><button class="stop">Stop</button><button class="copy">Copy log</button><button class="close" title="Close">&times;</button></span></div>
+        <div class="status"></div>
         <div class="list"></div>
+        <div class="bar">
+          <button class="pause">Pause</button><button class="stop">Stop</button><button class="copy">Copy log</button>
+          <button class="close" title="Close">&times;</button>
+        </div>
       </div>`;
     document.body.append(host);
     ui = { panel: root.querySelector('.panel'), status: root.querySelector('.status'), root,
@@ -278,15 +288,11 @@
       what.className = r.ok ? 'ok' : 'skip';
       what.textContent = ' ' + r.result;
       row.append(name, what);
+      row.title = `${r.title}: ${r.result}`;
       return row;
     });
-    if (results.length > SHOWN) {
-      const more = document.createElement('div');
-      more.className = 'more';
-      more.textContent = `${results.length - SHOWN} earlier book(s) in Copy log`;
-      rows.push(more);
-    }
     ui.list.replaceChildren(...rows);
+    ui.list.title = results.length > SHOWN ? `${results.length - SHOWN} earlier book(s) are in Copy log` : '';
     const label = navBtn?.querySelector('.app-footer-nav-label [role=text]');
     if (label) label.textContent = running ? 'Stop' : 'Download';
   }

@@ -40,34 +40,13 @@ function media(overdriveId) {
   return mediaCache.get(overdriveId);
 }
 
-// The content script says which format it picked just before clicking it, because an .acsm URL
-// alone does not say whether the book inside is an EPUB or a PDF.
-async function expectedFormat(overdriveId) {
-  const { expected } = await sessionStore.get('expected');
-  return expected?.[overdriveId];
-}
+// ---- Which book is a download? ------------------------------------------------------------------
+//
+// Usually the address says: https://fulfill.contentreserve.com/Title_ISBN_ID.acsm. But DRM-free
+// EPUBs redirect to a storage address named {GUID}Fmt810.epub, and Firefox reports the download
+// under that. So there are two fallbacks: the redirect, if the browser let us see it, and the book
+// the page said it was about to download (it tells us just before clicking EPUB or PDF).
 
-async function targetFor(url) {
-  const download = parseFulfillUrl(url);
-  if (!download) return null;
-  const settings = await getSettings();
-  let details = null;
-  try {
-    details = await media(download.overdriveId);
-  } catch (err) {
-    fail(`catalog lookup failed for ${download.overdriveId}; naming from the link only:`, err);
-  }
-  const vars = variables(details, download, await expectedFormat(download.overdriveId));
-  if (!vars.title) vars.title = shortUrl(url).split('_')[0];
-  const filename = buildPath(settings, vars, download.ext);
-  log('naming', shortUrl(url), '->', filename, vars);
-  await remember({ from: shortUrl(url), to: filename, lookedUp: !!details });
-  return { filename, conflictAction: settings.conflict };
-}
-
-// DRM-free EPUBs redirect from the OverDrive link to a storage server that names the file
-// {GUID}Fmt810.epub. Firefox reports the download under that second address, so remember where
-// each one came from.
 const redirectedFrom = new Map();  // redirected address -> OverDrive link
 api.webRequest?.onBeforeRedirect.addListener(details => {
   if (!parseFulfillUrl(details.url)) return;
@@ -75,37 +54,81 @@ api.webRequest?.onBeforeRedirect.addListener(details => {
   if (redirectedFrom.size > 200) redirectedFrom.delete(redirectedFrom.keys().next().value);
 }, { urls: ['https://*.contentreserve.com/*'] });
 
-// The OverDrive link a download came from, or undefined if it isn't a Libby download.
-function fulfillUrlOf(item) {
-  for (const u of [item.url, item.finalUrl]) {
-    if (!u) continue;
-    if (parseFulfillUrl(u)) return u;
-    if (redirectedFrom.has(u)) return redirectedFrom.get(u);
-  }
-  return undefined;
+let pending = null;           // { overdriveId, format, at, claimedBy } - the book about to download
+const known = new Map();      // download id -> { download, url } once we know which book it is
+const PENDING_MS = 20000;
+
+function remembered(id, book) {
+  known.set(id, book);
+  if (known.size > 500) known.delete(known.keys().next().value);
+  return book;
 }
 
-// Finished downloads, by OverDrive ID, so "already downloaded" works however the browser
-// recorded the address.
+function bookOf(item) {
+  if (known.has(item.id)) return known.get(item.id);
+  for (const u of [item.url, item.finalUrl]) {
+    if (!u) continue;
+    const link = parseFulfillUrl(u) ? u : redirectedFrom.get(u);
+    if (!link) continue;
+    const download = parseFulfillUrl(link);
+    // The expected book has arrived, so nothing else can be mistaken for it.
+    if (pending?.overdriveId === download.overdriveId && pending.claimedBy === undefined) pending.claimedBy = item.id;
+    return remembered(item.id, { download, url: link });
+  }
+  // A book-type file starting just after the page chose a format is that book.
+  const ext = [item.filename, item.url].map(s => (s || '').match(/\.(acsm|epub|pdf)(?:$|[?#])/i)?.[1])
+    .find(Boolean)?.toLowerCase();
+  if (ext && pending && Date.now() - pending.at < PENDING_MS &&
+      (pending.claimedBy === undefined || pending.claimedBy === item.id)) {
+    pending.claimedBy = item.id;
+    return remembered(item.id, {
+      download: { overdriveId: pending.overdriveId, isbn: '', ext, drm: ext === 'acsm' ? 'DRM' : 'DRM-free', library: '' },
+      url: item.url,
+    });
+  }
+  return null;
+}
+
+async function targetFor(book) {
+  const { download, url } = book;
+  const settings = await getSettings();
+  let details = null;
+  try {
+    details = await media(download.overdriveId);
+  } catch (err) {
+    fail(`catalog lookup failed for ${download.overdriveId}; naming from the link only:`, err);
+  }
+  const format = pending?.overdriveId === download.overdriveId ? pending.format : undefined;
+  const vars = variables(details, download, format);
+  if (!vars.title) vars.title = shortUrl(url).split('_')[0];
+  const filename = buildPath(settings, vars, download.ext);
+  log('naming', shortUrl(url), '->', filename, vars);
+  await remember({ from: shortUrl(url), to: filename, lookedUp: !!details });
+  return { filename, conflictAction: settings.conflict };
+}
+
+// ---- Download events ------------------------------------------------------------------------
+
+// Note when each book's download starts, so the page can move on as soon as it has.
+api.downloads.onCreated.addListener(async item => {
+  const book = bookOf(item);
+  if (!book) return;
+  const { started = {} } = await sessionStore.get('started');
+  started[book.download.overdriveId] = Date.now();
+  await sessionStore.set({ started });
+  log('download started for', book.download.overdriveId);
+});
+
+// Remember finished downloads by book, so "already downloaded" works whatever address the browser
+// recorded.
 api.downloads.onChanged.addListener(async delta => {
   if (delta.state?.current !== 'complete') return;
   const [item] = await api.downloads.search({ id: delta.id });
-  const download = item && parseFulfillUrl(fulfillUrlOf(item) || '');
-  if (!download) return;
+  const book = item && bookOf(item);
+  if (!book) return;
   const { completed = {} } = await api.storage.local.get('completed');
-  completed[download.overdriveId] = delta.id;
+  completed[book.download.overdriveId] = delta.id;
   await api.storage.local.set({ completed });
-});
-
-// Note when each Libby download starts, so the page can move on as soon as it has (Libby does not
-// always show its "Done" screen).
-api.downloads.onCreated.addListener(async item => {
-  const download = parseFulfillUrl(fulfillUrlOf(item) || '');
-  if (!download) return;
-  const { started = {} } = await sessionStore.get('started');
-  started[download.overdriveId] = Date.now();
-  await sessionStore.set({ started });
-  log('download started for', download.overdriveId);
 });
 
 // OverDrive's download server answers 429 Too Many Requests when books are fetched too fast.
@@ -119,22 +142,22 @@ api.webRequest?.onHeadersReceived.addListener(async details => {
 if (api.downloads.onDeterminingFilename) {
   // Chrome and Edge: suggest the name as the download starts.
   api.downloads.onDeterminingFilename.addListener((item, suggest) => {
-    const url = fulfillUrlOf(item);
-    if (!url) return;  // not a Libby download: leave it alone
-    targetFor(url)
-      .then(t => (t ? suggest({ filename: t.filename, conflictAction: t.conflictAction }) : suggest()))
+    const book = bookOf(item);
+    if (!book) return;  // not a Libby download: leave it alone
+    targetFor(book)
+      .then(t => suggest({ filename: t.filename, conflictAction: t.conflictAction }))
       .catch(err => {
-        fail('could not name', shortUrl(url), '- kept the browser\'s name:', err);
-        remember({ from: shortUrl(url), to: '(browser default)', error: String(err) });
+        fail('could not name', shortUrl(book.url), "- kept the browser's name:", err);
+        remember({ from: shortUrl(book.url), to: '(browser default)', error: String(err) });
         suggest();
       });
     return true;  // suggest() is called asynchronously
   });
 } else {
-  // Firefox has no way to rename a download in flight. So fetch the same link again under the
+  // Firefox has no way to rename a download in flight. So fetch the same file again under the
   // right name, and remove Libby's copy only once ours has finished: if ours fails, Libby's copy
   // is kept under its own name rather than losing the book.
-  const ours = new Set();
+  const ours = new Set();       // addresses we are fetching ourselves
   const replacing = new Map();  // our download id -> Libby's download id
 
   const removeLibbysCopy = async original => {
@@ -161,20 +184,24 @@ if (api.downloads.onDeterminingFilename) {
   };
 
   api.downloads.onCreated.addListener(async item => {
-    const url = fulfillUrlOf(item);
-    if (!url || ours.has(url)) return;
+    if (ours.has(item.url)) return;
+    const book = bookOf(item);
+    if (!book) return;
     try {
-      const t = await targetFor(url);
-      if (!t) return;
+      const t = await targetFor(book);
+      // Fetch the OverDrive link if we know it, otherwise the address Firefox reported.
+      const url = book.url || item.url;
       ours.add(url);
+      ours.add(item.url);
       const id = await api.downloads.download({ url, filename: t.filename, conflictAction: t.conflictAction });
+      known.set(id, book);
       replacing.set(id, item.id);
       // A tiny .acsm can finish before we start listening for it.
       const [now] = await api.downloads.search({ id });
       if (now && now.state !== 'in_progress') await settle(id, now.state, now.error);
     } catch (err) {
-      fail('could not re-download', shortUrl(url), 'under the new name:', err);
-      remember({ from: shortUrl(url), to: '(failed)', error: String(err) });
+      fail('could not re-download', shortUrl(book.url || item.url), 'under the new name:', err);
+      remember({ from: shortUrl(book.url || item.url), to: '(failed)', error: String(err) });
     }
   });
   api.downloads.onChanged.addListener(delta => {
@@ -204,9 +231,8 @@ api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         }
       }
       case 'expect': {
-        const { expected = {} } = await sessionStore.get('expected');
-        expected[msg.overdriveId] = msg.format;
-        await sessionStore.set({ expected });
+        // The page is about to click EPUB/PDF for this book.
+        pending = { overdriveId: msg.overdriveId, format: msg.format, at: Date.now() };
         return true;
       }
       case 'downloaded': {
