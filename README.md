@@ -1,82 +1,75 @@
 # bookhoard
 
-Download all your Libby loans at once.
+Download all your Libby books at once, with proper file names. Return them all at once when
+you're done.
 
-bookhoard adds a **Download** button to Libby's footer, next to Tags. Click it and it saves every
-loan as an EPUB (or PDF), named like `Children of Time - Adrian Tchaikovsky`. When you're done,
-the **Return** button next to it sends all your loans back.
+bookhoard adds two buttons to the bottom of Libby in your browser:
+
+![Libby's footer with bookhoard's Download and Return buttons on the right](docs/footer.png)
+
+- **Download** saves every book you've borrowed, named like `Children of Time - Adrian Tchaikovsky`.
+- **Return** sends back the books you pick.
 
 ## Install
 
-Get the zip for your browser from the
+Download the zip for your browser from the
 [latest release](https://github.com/phillram/bookhoard/releases/latest).
 
-**Chrome or Edge**: `bookhoard-vX.Y.Z-chrome.zip`
+**Chrome or Edge**
 
-1. Unzip it.
-2. Go to `chrome://extensions` (or `edge://extensions`) and turn on Developer mode.
+1. Unzip `bookhoard-…-chrome.zip`.
+2. Go to `chrome://extensions` (or `edge://extensions`) and turn on **Developer mode**.
 3. Click **Load unpacked** and pick the unzipped folder.
 
-**Firefox**: `bookhoard-vX.Y.Z-firefox.zip`
+**Firefox**
 
 1. Go to `about:debugging#/runtime/this-firefox`.
-2. Click **Load Temporary Add-on** and pick the zip. You'll need to do this again after
-   restarting Firefox.
+2. Click **Load Temporary Add-on** and pick `bookhoard-…-firefox.zip`.
 
-To update, download the new zip and replace the old folder, then click the reload button on
-bookhoard in your browser's extensions page. Reload your Libby tab afterwards so it uses the new
-version.
+Firefox removes it when you close the browser, so you'll need to do this again next time.
 
-## Use
+## Download your books
 
-1. Open [libbyapp.com/shelf/loans](https://libbyapp.com/shelf/loans).
-2. Click **Download** in the footer. Click it again (it says **Stop**) to stop.
+1. Open your loans at [libbyapp.com/shelf/loans](https://libbyapp.com/shelf/loans).
+2. Click **Download** at the bottom.
+3. If your browser asks about downloading several files, click **Allow**.
 
-If your browser asks about downloading multiple files, say yes.
+A panel shows how it's going. You can **Pause** or **Stop** at any time.
 
-To return loans, click **Return**. It lists all your loans so you can tick the ones to send
-back (or use **All**, **Downloaded** or **None**), then click **Return**. Books you haven't
-downloaded yet are marked and start unticked. Returning can't be undone; you'd have to borrow the
-book again.
+![The progress panel listing books as they download](docs/downloading.png)
 
-## Good to know
+Most books come as an `.acsm` file. Open it in
+[Adobe Digital Editions](https://www.adobe.com/solutions/ebook/digital-editions.html) to get the
+book itself. A few come as a plain `.epub` or `.pdf`, ready to read.
 
-- Most books download as an `.acsm` file. Open it with
-  [Adobe Digital Editions](https://www.adobe.com/solutions/ebook/digital-editions.html) to get
-  the book.
-- Some books are DRM-free and download as a normal `.epub` or `.pdf`.
-- Choosing a format locks that loan to it until you borrow the book again. That's how Libby
-  works.
-- Skipped: audiobooks, loans you've already downloaded, and books with no EPUB or PDF.
+## Return your books
+
+1. Click **Return** at the bottom.
+2. Tick the books to send back, then click **Return**.
+
+Books you haven't downloaded yet start unticked, so you don't return one by accident.
+
+![The Return list with a checkbox for each book](docs/return.png)
 
 ## Options
 
-Click the bookhoard icon in your toolbar.
+Click the bookhoard icon in your browser's toolbar to choose how files are named, where they're
+saved, and which format to get.
 
-- **Folder**: where to save, inside your Downloads folder, e.g. `Libby`.
-- **Name pattern**: `{title} - {author}` by default. You can use:
+![The options page](docs/options.png)
 
-  `{title}` `{subtitle}` `{author}` `{authors}` `{authorSort}` `{series}` `{seriesNumber}`
-  `{publisher}` `{year}` `{date}` `{isbn}` `{overdriveId}` `{format}` `{drm}` `{library}`
-  `{language}`
+## Good to know
 
-  Put optional bits in `< >`. They're dropped if empty, so `<{series} {seriesNumber} - >{title}`
-  only adds the series for books that have one. Use `/` for folders, like `{author}/{title}`.
-- **Format**: EPUB first, EPUB only, or PDF first.
-- **Download at most**: handy for trying it out on a few books first.
-- **Pause after every few books**: 60 seconds after every 10 books by default. OverDrive refuses
-  downloads ("too many requests") after roughly 15 to 20 books in a few minutes. If it happens anyway,
-  bookhoard waits a minute and carries on by itself.
+- Choosing EPUB or PDF locks that loan to the format until you borrow the book again. That's
+  how Libby works.
+- Audiobooks are skipped.
+- After updating bookhoard, reload your Libby tab.
 
 ## Something not working?
 
-1. In the options, tick **Debug**.
-2. Run it again.
-3. Click **Copy log** on the results panel and paste it into a
-   [GitHub issue](https://github.com/phillram/bookhoard/issues).
-
-The log has what happened to each book (with its title) and the file names it chose. It doesn't
-include your download links.
+Click **Copy log** on the panel and paste it into a
+[new issue](https://github.com/phillram/bookhoard/issues). It lists your book titles and what
+happened to each one, but not your download links.
 
 ## License
 

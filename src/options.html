@@ -12,53 +12,57 @@
     * { box-sizing: border-box; }
     body {
       margin: 0; background: var(--bg); color: var(--text);
-      font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+      font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
     }
-    main { max-width: 720px; margin: 0 auto; padding: 32px 24px 64px; }
-    header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
-    header img { width: 36px; height: 36px; }
-    h1 { font-size: 22px; font-weight: 650; margin: 0; }
+    main { max-width: 680px; margin: 0 auto; padding: 28px 24px 48px; }
+    header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+    header img { width: 32px; height: 32px; }
+    h1 { font-size: 21px; font-weight: 650; margin: 0; }
     #saved { margin-left: auto; color: var(--ok); font-size: 14px; }
 
     section { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-              padding: 20px 22px; margin-bottom: 16px; }
-    h2 { font-size: 16px; font-weight: 650; margin: 0 0 14px; }
-    .field + .field { margin-top: 16px; }
-    label { display: block; font-weight: 550; margin-bottom: 6px; }
-    .help { color: var(--muted); margin: 6px 0 0; }
-    .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+              padding: 18px 20px; margin-bottom: 14px; }
+    h2 { font-size: 15px; font-weight: 650; margin: 0 0 12px; }
+    .field + .field { margin-top: 14px; }
+    label { display: block; font-weight: 550; margin-bottom: 5px; }
+    .help { color: var(--muted); font-size: 14px; margin: 5px 0 0; }
+    .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .row label { margin: 0; font-weight: 400; }
+    .row label:first-child { font-weight: 550; }
 
     input[type=text], input[type=number], select {
       font: inherit; color: var(--text); background: var(--field);
-      border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+      border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px;
     }
     input[type=text] { width: 100%; }
-    input[type=number] { width: 80px; }
+    input[type=number] { width: 72px; }
     input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
     input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; }
     .check { display: flex; gap: 10px; align-items: center; font-weight: 400; margin: 0; }
-    button { font: inherit; font-size: 14px; color: var(--text); background: var(--field);
-             border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
-    button:hover { border-color: var(--accent); }
+    .link { font: inherit; font-size: 14px; color: var(--accent); background: none; border: 0;
+            padding: 0; cursor: pointer; }
+    .link:hover { text-decoration: underline; }
 
     code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.88em;
            background: var(--field); border-radius: 5px; padding: 1px 5px; }
     #template { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 14px; }
 
-    .preview { margin-top: 12px; background: var(--field); border-radius: 8px; padding: 10px 12px; }
+    .preview { margin-top: 10px; background: var(--field); border-radius: 8px; padding: 8px 12px; }
     .preview div { display: flex; justify-content: space-between; gap: 12px; }
-    .preview code { background: none; padding: 0; font-size: 14px; overflow-wrap: anywhere; }
+    .preview code { background: none; padding: 0; font-size: 13.5px; overflow-wrap: anywhere; }
     .preview span { color: var(--muted); font-size: 13px; white-space: nowrap; }
     .warn { color: var(--warn); margin: 8px 0 0; }
 
-    .vars { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; margin-top: 14px; }
-    .vars button { display: flex; align-items: baseline; gap: 8px; text-align: left; width: 100%;
-                   background: none; border: 1px solid transparent; padding: 4px 6px; }
-    .vars button:hover { background: var(--field); border-color: var(--line); }
-    .vars code { color: var(--accent); background: none; padding: 0; font-size: 13.5px; }
-    .vars span { color: var(--muted); font-size: 14px; }
-    @media (max-width: 560px) { .vars { grid-template-columns: 1fr; } }
+    .vars { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+    .vars button { font: inherit; font-size: 13px; color: var(--text); background: var(--field);
+                   border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; cursor: pointer; }
+    .vars button:hover { border-color: var(--accent); }
+    .vars code { color: var(--accent); background: none; padding: 0; margin-right: 5px; font-size: 12.5px; }
+    .vars span { color: var(--muted); }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; }
+    .grid select { width: 100%; }
+    .grid + .field { margin-top: 14px; }
+    @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -70,55 +74,48 @@
   </header>
 
   <section>
-    <h2>Where to save</h2>
-    <div class="field">
-      <label for="folder">Folder</label>
-      <input type="text" id="folder" placeholder="Downloads">
-      <p class="help">A folder inside your Downloads folder, like <code>Libby</code> or <code>Libby/Books</code>.
-        Leave it blank to save straight into Downloads. To save somewhere else entirely, change your
-        browser's download location.</p>
-    </div>
-  </section>
-
-  <section>
     <h2>File names</h2>
     <div class="field">
-      <label for="template">Name pattern</label>
-      <input type="text" id="template" spellcheck="false">
+      <input type="text" id="template" spellcheck="false" aria-label="Name pattern">
       <div class="preview" id="preview"></div>
       <p id="unknown" class="warn" hidden></p>
-      <p class="help">Click a field below to add it. Anything inside <code>&lt; &gt;</code> is left out
-        when it's empty, so <code>&lt;{series} {seriesNumber} - &gt;{title}</code> only adds the series
-        when there is one. A <code>/</code> makes a folder. The file extension is added for you.</p>
-      <p><button id="resetTemplate">Reset to {title} - {author}</button></p>
       <div class="vars" id="vars"></div>
+      <p class="help">Click a field to add it. Anything in <code>&lt; &gt;</code> is left out when it's empty,
+        and <code>/</code> makes a folder. <button class="link" id="resetTemplate">Reset</button></p>
+    </div>
+    <div class="field">
+      <label for="folder">Save in</label>
+      <input type="text" id="folder" placeholder="Downloads">
+      <p class="help">A folder inside Downloads, like <code>Libby</code>. Leave it blank to save straight into Downloads.</p>
     </div>
   </section>
 
   <section>
     <h2>Downloading</h2>
-    <div class="field">
-      <label for="formatOrder">Format</label>
-      <select id="formatOrder">
-        <option value="epub-pdf">EPUB, or PDF if there's no EPUB</option>
-        <option value="epub">EPUB only</option>
-        <option value="pdf-epub">PDF, or EPUB if there's no PDF</option>
-      </select>
+    <div class="grid">
+      <div>
+        <label for="formatOrder">Format</label>
+        <select id="formatOrder">
+          <option value="epub-pdf">EPUB, or PDF if there's no EPUB</option>
+          <option value="epub">EPUB only</option>
+          <option value="pdf-epub">PDF, or EPUB if there's no PDF</option>
+        </select>
+      </div>
+      <div>
+        <label for="conflict">If the file already exists</label>
+        <select id="conflict">
+          <option value="uniquify">Keep both</option>
+          <option value="overwrite">Replace it</option>
+        </select>
+      </div>
     </div>
     <div class="field">
-      <label for="conflict">If a file with that name already exists</label>
-      <select id="conflict">
-        <option value="uniquify">Keep both</option>
-        <option value="overwrite">Replace it</option>
-      </select>
-    </div>
-    <div class="field">
-      <label class="check"><input type="checkbox" id="skipDownloaded"> Skip books already in this browser's downloads</label>
+      <label class="check"><input type="checkbox" id="skipDownloaded"> Skip books already downloaded</label>
     </div>
     <div class="field row">
       <label for="limit">Download at most</label>
       <input type="number" id="limit" min="0" placeholder="all">
-      <label for="limit">books per run</label>
+      <label for="limit">books at a time</label>
     </div>
     <div class="field">
       <div class="row">
@@ -128,20 +125,14 @@
         <input type="number" id="batchSize" min="1" step="1">
         <label for="batchSize">books</label>
       </div>
-      <p class="help">OverDrive refuses downloads ("too many requests") after roughly 15 to 20 books in a
-        few minutes. A short break every so often avoids that. If it happens anyway, bookhoard waits a
-        minute and carries on. Set the pause to 0 to never pause. Firefox downloads each book twice
-        (to rename it), so there it pauses twice as often: after every 5 books instead of 10.</p>
+      <p class="help">Libby blocks downloads for a while if you take too many too quickly. 0 turns the pause
+        off. Firefox pauses twice as often.</p>
     </div>
   </section>
 
   <section>
     <h2>Troubleshooting</h2>
-    <div class="field">
-      <label class="check"><input type="checkbox" id="debug"> Debug logging</label>
-      <p class="help">Writes each step to the browser console. To share it, click <strong>Copy log</strong>
-        on the results panel and paste it into a bug report.</p>
-    </div>
+    <label class="check"><input type="checkbox" id="debug"> Also show each step in the browser console</label>
   </section>
 </main>
 <script src="options.js" type="module"></script>

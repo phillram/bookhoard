@@ -618,7 +618,7 @@
       for (let left = 60; left > 0; left--) {
         if (running) return;  // Download was clicked during the countdown
         if (resumeCancelled) { render('Cancelled. Click Download to carry on.'); return; }
-        render(`OverDrive said "too many requests" at "${inFlight.title}". Carrying on in ${left}s… ` +
+        render(`Libby asked bookhoard to slow down at "${inFlight.title}". Carrying on in ${left}s… ` +
           '(× to cancel)');
         await sleep(1000);
       }
@@ -697,7 +697,7 @@
         lastLimit = hit.at;
         batchPauseMs = Math.max(batchPauseMs, 60000);
         fail('download server said "too many requests"; waiting a minute');
-        await pauseFor(60000, 'OverDrive said "too many requests". Waiting a minute');
+        await pauseFor(60000, 'Libby asked bookhoard to slow down. Waiting a minute');
         await setPace({ count: 0, lastAt: Date.now() });
         if (!stopRequested) await retryRenames();
         return true;
@@ -720,7 +720,7 @@
         }
         if (pace.count < breakAt) return;
         log(`  taking a break: ${pace.count / perBook} books since the last one`);
-        await pauseFor(batchPauseMs - idle, `Pausing so OverDrive doesn't refuse downloads.`);
+        await pauseFor(batchPauseMs - idle, `Taking a short break so Libby keeps the downloads coming.`);
         if (!stopRequested) await setPace({ count: 0, lastAt: pace.lastAt });
       };
       const countDownload = async () => {
@@ -851,7 +851,7 @@
       // and fetch it again, unless Stop was pressed (then the next run does it).
       if (perBook > 1) await sleep(3000);
       if (perBook > 1 && !stopRequested && !(await checkRateLimit()) && (await ask({ type: 'renamesWaiting' }))) {
-        await pauseFor(60000, 'OverDrive refused a renamed copy. Waiting a minute to fetch it again');
+        await pauseFor(60000, 'Libby refused a renamed copy. Waiting a minute to try it again');
         if (!stopRequested) await retryRenames();
       }
     } catch (err) {
