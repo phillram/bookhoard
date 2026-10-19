@@ -4,6 +4,8 @@
 // file. It never clicks Return, Renew, Suspend or Cancel.
 // Return asks first, then returns loans through each one's Manage Loan sheet. Return is the only
 // button it clicks that changes a loan.
+// Borrow (on pages that list books, like a series) asks which books, then borrows each one, or
+// places a hold when no library has a copy, through Libby's own Borrow / Place Hold screens.
 (() => {
   if (window.__bookhoard) return;
   window.__bookhoard = true;
@@ -52,13 +54,16 @@
   const NEVER = /return|renew|suspend|cancel|delete|remove|passkey|sign out|log out|forget|unlink/i;
   // When returning loans, only buttons that say Return (early) may be clicked to change a loan.
   const RETURN_BUTTON = /^return( early| now| (this )?(loan|title|book))?!?$/i;
+  // When borrowing, only these may be clicked to borrow or place a hold.
+  const BORROW_BUTTON = /^(borrow|place hold)!?$/i;
   // Libby's sign-in, backup and passkey screens live under /interview. bookhoard never acts there.
   const onAccountScreen = () => location.pathname.startsWith('/interview');
   let host = null;    // the progress panel's container
   let navBtn = null;  // our footer Download button
   let retBtn = null;  // our footer Return button
+  let borBtn = null;  // our footer Borrow button (only on pages that list books)
   // (all are kept out of every search below, so a run never clicks its own controls)
-  const ours = e => e === host || !!navBtn?.contains(e) || !!retBtn?.contains(e);
+  const ours = e => e === host || !!navBtn?.contains(e) || !!retBtn?.contains(e) || !!borBtn?.contains(e);
 
   // Is el what is actually on screen at its own centre (not hidden behind a sheet)?
   const onTop = el => {
@@ -88,6 +93,13 @@
     const label = txt(el);
     if (onAccountScreen()) throw new Error('on a Libby account screen; not clicking ' + label);
     if (NEVER.test(label)) throw new Error('refused to click ' + label);
+    el.click();
+    return label;
+  };
+  const pressBorrow = el => {
+    const label = txt(el);
+    if (onAccountScreen()) throw new Error('on a Libby account screen; not clicking ' + label);
+    if (!BORROW_BUTTON.test(label)) throw new Error('refused to click ' + label);
     el.click();
     return label;
   };
@@ -355,6 +367,11 @@
       </g>
     </svg>`;
 
+  // A closed book with a plus on its cover: borrowing.
+  const BORROW_ICON = RETURN_ICON.replace(
+    'M31,24.5 L27.5,28 L31,31.5 M27.5,28 L36.5,28 C39.5,28 41.5,30.4 41.5,33.25 C41.5,36.1 39.5,38.5 36.5,38.5 L31,38.5',
+    'M35,24 L35,40 M27,32 L43,32');
+
   function footerButton(bar, { name, mine, label, aria, icon, start }) {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -381,6 +398,8 @@
     retBtn?.remove();
     navBtn = footerButton(bar, { name: 'bookhoard', mine: 'download', label: 'Download', aria: 'Download loans (bookhoard)', icon: ICON, start: run });
     retBtn = footerButton(bar, { name: 'bookhoard-return', mine: 'return', label: 'Return', aria: 'Return loans (bookhoard)', icon: RETURN_ICON, start: returnAll });
+    borBtn?.remove();
+    borBtn = footerButton(bar, { name: 'bookhoard-borrow', mine: 'borrow', label: 'Borrow', aria: 'Borrow the books listed here (bookhoard)', icon: BORROW_ICON, start: borrowAll });
   }
 
   function requestStop() {
@@ -528,7 +547,7 @@
     ui.list.replaceChildren(...rows);
     ui.list.title = results.length > SHOWN ? `${results.length - SHOWN} earlier book(s) are in Copy log` : '';
     // The button that started the run says Stop; the other one is dimmed until it ends.
-    for (const [btn, name, label] of [[navBtn, 'download', 'Download'], [retBtn, 'return', 'Return']]) {
+    for (const [btn, name, label] of [[navBtn, 'download', 'Download'], [retBtn, 'return', 'Return'], [borBtn, 'borrow', 'Borrow']]) {
       if (!btn) continue;
       const mine = running && mode === name;
       let text = btn.querySelector('.app-footer-nav-label [role=text]');
@@ -606,9 +625,10 @@
     if (getComputedStyle(bar).position === 'static') bar.style.position = 'relative';
     const last = own[own.length - 1];
     const step = last.offsetLeft - own[own.length - 2].offsetLeft;
-    // On a narrow screen there is no room to the right, so sit just above the last two buttons.
-    const fits = bar.getBoundingClientRect().left + last.offsetLeft + 2 * step + last.offsetWidth <= innerWidth - 4;
-    [navBtn, retBtn].forEach((btn, k) => {
+    // On a narrow screen there is no room to the right, so sit just above the last few buttons.
+    const mine = [navBtn, retBtn, borBtn].filter(b => b && b.style.display !== 'none');
+    const fits = bar.getBoundingClientRect().left + last.offsetLeft + mine.length * step + last.offsetWidth <= innerWidth - 4;
+    mine.forEach((btn, k) => {
       const below = own[own.length - 1 - k];
       Object.assign(btn.style, {
         position: 'absolute',
@@ -673,13 +693,19 @@
       choose?.(null);
       navBtn?.remove();
       retBtn?.remove();
+      borBtn?.remove();
       host?.remove();
       return;
     }
     const bar = document.querySelector('.app-footer-nav-bar-controls');
-    if (bar && !(navBtn && bar.contains(navBtn) && retBtn && bar.contains(retBtn))) {
+    if (bar && !(navBtn && bar.contains(navBtn) && retBtn && bar.contains(retBtn) && borBtn && bar.contains(borBtn))) {
       buildNavButtons(bar);
       render('');
+    }
+    // Borrow only shows on pages that list books you could borrow (and while its run is going).
+    if (borBtn) {
+      const show = (running && mode === 'borrow') || (!running && listingHere());
+      borBtn.style.display = show ? '' : 'none';
     }
     if (navBtn && bar) placeNavButtons(bar);
     if (!host) buildPanel();
@@ -699,7 +725,7 @@
   // pointer is over it, and when something went wrong, so Copy log is at hand.
   let closeTimer = 0;
   let hovering = false;
-  const PROBLEM = /^(skipped:|error|not returned)|no download started/i;
+  const PROBLEM = /^(skipped:|error|not returned|not borrowed)|no download started/i;
   async function endRun(text, { cancelled = false, ok = true } = {}) {
     running = false;
     clearTimeout(closeTimer);
@@ -1167,6 +1193,256 @@
     } finally {
       if (choose) choose(null);
       log('return run finished:', cancelled ? 'cancelled' : ending, count());
+      if (!/^(Done|Stopped)\./.test(ending)) ok = false;
+      await endRun(results.length ? `${ending} ${count()}.` : ending, { cancelled, ok });
+    }
+  }
+
+  // ---- The borrow run -------------------------------------------------------------------------
+
+  // The screen Libby is showing: it keeps earlier screens in the page (as other "train cars").
+  function activeScreen() {
+    const hit = document.elementsFromPoint(innerWidth / 2, innerHeight / 2).find(e => !ours(e));
+    return hit?.closest('.view-train-car') || document.body;
+  }
+  // Book cards on the current screen, read into { title, titleId, series, state, card }.
+  // state: 'borrow', 'hold' (waitlist), 'loaned' (already on your shelf), 'held' (already on hold).
+  function listedBooks() {
+    const books = [];
+    for (const card of activeScreen().querySelectorAll('.title-tile-shell')) {
+      if (!card.getClientRects().length) continue;
+      const cover = [...card.querySelectorAll('*')].find(e => COVER.test(txt(e)));
+      const link = [...card.querySelectorAll('a[href]')].map(a => a.getAttribute('href')).find(h => /\/\d+\/?$/.test(h));
+      const buttons = [...card.querySelectorAll('button, a, [role=button]')];
+      const all = txt(card);
+      const action = buttons.find(b => BORROW_BUTTON.test(txt(b)));
+      let state = !action ? '' : /^place hold/i.test(txt(action)) ? 'hold' : 'borrow';
+      if (/on your loans shelf/i.test(all)) state = 'loaned';
+      else if (/on your holds shelf|on hold/i.test(all)) state = 'held';
+      if (!state || !cover || !link) continue;
+      books.push({
+        title: txt(cover).match(COVER)[1],
+        titleId: link.match(/\/(\d+)\/?$/)[1],
+        series: txt(card.querySelector('.series-number')).match(/#(\d+)/)?.[1] || '',
+        state, card,
+      });
+    }
+    return books;
+  }
+  // Is this a page listing books to borrow? (Not the shelf, Libby's /interview screens, or a
+  // borrow screen.)
+  // Checked twice a second, so kept cheap: at least two Borrow / Place Hold buttons on book cards.
+  function listingHere() {
+    if (shelfPath() || /^\/shelf\//.test(location.pathname) || onAccountScreen() || /\/request/.test(location.pathname)) return false;
+    let n = 0;
+    for (const b of activeScreen().querySelectorAll('.title-tile-shell button, .title-tile-shell [role=button]')) {
+      if (BORROW_BUTTON.test(b.textContent.trim()) && ++n >= 2) return true;
+    }
+    return false;
+  }
+
+  // Libby adds cards as the list scrolls: scroll to the end until no more appear, then back to top.
+  async function loadWholeList() {
+    const scroller = activeScreen().querySelector('.scroller') || document.scrollingElement;
+    let count = -1;
+    for (let still = 0, t = activeNow(); still < 3 && activeNow() - t < 20000; ) {
+      scroller.scrollTop = scroller.scrollHeight;
+      await sleep(500);
+      const now = listedBooks().length;
+      still = now === count ? still + 1 : 0;
+      count = now;
+    }
+    scroller.scrollTop = 0;
+    await sleep(300);
+  }
+
+  // One copy of each book: editions of the same book (same series number and title) are merged,
+  // keeping one you can borrow now over a waitlisted one.
+  function dedupe(books) {
+    const rank = { borrow: 0, hold: 1, loaned: 2, held: 3 };
+    const key = b => `${b.series}|${b.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()}`;
+    const best = new Map();
+    for (const b of books) {
+      const was = best.get(key(b));
+      if (!was || rank[b.state] < rank[was.state]) best.set(key(b), b);
+    }
+    return [...best.values()];
+  }
+
+  const libraryNameButton = () => [...document.querySelectorAll('.circ-option-library-name')].find(onTop);
+
+  // On Libby's borrow screen: if it offers a hold, or the card needs verifying, choose a library
+  // that has a copy now instead (Libby's own "compare availability" list). Returns what it did.
+  async function chooseLibraryWithCopy() {
+    const name = libraryNameButton();
+    if (!name) return '';
+    const current = txt(name);
+    name.click();
+    await sleep(1500);
+    const choices = [...document.querySelectorAll('.circ-option-library-choice')].filter(onTop);
+    const pick = choices.find(c => /^(\d+) of \d+ cop(y|ies) available/i.test(txt(c)) &&
+      Number(txt(c).match(/^(\d+)/)[1]) > 0 && !txt(c).endsWith(current));
+    if (!pick) {
+      // Nothing better: close the list (its Back, or by choosing the library that was already set).
+      const back = [...document.querySelectorAll('.interview-block-back-button')].find(onTop) ||
+        choices.find(c => txt(c).endsWith(current));
+      back?.click();
+      await sleep(1000);
+      return '';
+    }
+    const library = txt(pick).replace(/^.*? at /, '');
+    pick.click();
+    await sleep(2000);
+    return library;
+  }
+
+  // Borrow (or hold) one book from the list screen. Returns { ok, result } or { wait: why } when
+  // you need to do something in Libby first (verify a card, sign in).
+  async function borrowOne(book, listPath) {
+    if (location.pathname !== listPath && !(await backToList(listPath))) return { result: 'could not get back to the list' };
+    const card = listedBooks().find(b => b.titleId === book.titleId)?.card;
+    if (!card) return { result: 'it is no longer in the list' };
+    card.scrollIntoView({ block: 'center' });
+    await sleep(400);
+    const fresh = listedBooks().find(b => b.titleId === book.titleId);
+    if (fresh?.state === 'loaned') return { ok: true, result: 'already on your shelf' };
+    const button = fresh && [...fresh.card.querySelectorAll('button, a, [role=button]')].find(b => BORROW_BUTTON.test(txt(b)) && onTop(b));
+    if (!button) return { result: "its Borrow button isn't on screen" };
+    pressBorrow(button);
+    // Libby's borrow screen: a confirm button, or Verify Card, or a sign-in screen.
+    const confirmButton = () => [...document.querySelectorAll('.circ-confirm-button')].find(b => onTop(b) && BORROW_BUTTON.test(txt(b)));
+    const verify = () => topEls(/^verify card$/i)[0];
+    for (const t = activeNow(); activeNow() - t < 10000 && !confirmButton() && !verify() && !onAccountScreen(); ) await sleep(200);
+    if (onAccountScreen()) return { wait: 'Libby wants you to sign in' };
+    let switched = '';
+    if (verify() || /hold/i.test(txt(confirmButton()))) {
+      switched = await chooseLibraryWithCopy();
+      if (switched) log(`  switched to ${switched}, which has a copy`);
+      for (const t = activeNow(); activeNow() - t < 5000 && !confirmButton() && !verify(); ) await sleep(200);
+    }
+    if (verify()) {
+      const library = txt(libraryNameButton()) || 'this library';
+      return { wait: `your card at ${library} needs verifying` };
+    }
+    const confirm = confirmButton();
+    if (!confirm) return { result: "Libby's borrow screen didn't show a Borrow button" };
+    const what = pressBorrow(confirm);
+    log(`  confirming: ${what}${switched ? ` (at ${switched})` : ''}`);
+    interruptible = false;  // under way: see it through
+    // Done when Libby shows Keep Browsing; otherwise it says why not.
+    let done = null;
+    for (const t = activeNow(); activeNow() - t < 15000 && !done; await sleep(200)) {
+      done = topEls(/^keep browsing$/i)[0];
+    }
+    const outcome = txt(document.querySelector('.screen-title-circ-outcome'));
+    if (!done) {
+      log('  no Keep Browsing. Screen shows:', onScreen(), outcome);
+      return { result: outcome || 'Libby did not confirm it', limit: /limit|maximum|too many/i.test(outcome) };
+    }
+    press(done);
+    await sleep(800);
+    return { ok: true, result: /hold/i.test(what) ? 'hold placed' : 'borrowed' + (switched ? ` (${switched})` : '') };
+  }
+
+  // Back to the list page the run started on: Keep Browsing, or Libby's own Back button at the top
+  // of its screens. (Never the browser's Back, which can leave Libby altogether.)
+  async function backToList(listPath) {
+    for (let k = 0; k < 5 && location.pathname !== listPath; k++) {
+      if (onAccountScreen()) return false;
+      const back = topEls(/^keep browsing$/i)[0] || [...document.querySelectorAll('button.crumb')].find(onTop);
+      if (!back) return false;
+      back.click();
+      for (let w = 0; w < 30 && location.pathname !== listPath; w++) await sleep(100);
+    }
+    await sleep(300);
+    return location.pathname === listPath;
+  }
+
+  async function borrowAll() {
+    running = true;
+    clearTimeout(closeTimer);
+    mode = 'borrow';
+    panelOpen = true;
+    stopRequested = false;
+    paused = false;
+    results = [];
+    let borrowed = 0;
+    let held = 0;
+    const count = () => `${borrowed} borrowed, ${held} holds, ${results.length - borrowed - held} not`;
+    const note = (book, result, ok = false) => {
+      log(`${book.title} [${book.titleId}]: ${result}`);
+      results.push({ title: book.title, result, ok });
+      if (ok && /hold/.test(result)) held++;
+      else if (ok) borrowed++;
+      render(stopRequested ? `Stopping… ${count()}` : paused ? `Pausing after this book… ${count()}` : `Borrowing… ${count()}`);
+    };
+    render('Looking at the books on this page…');
+    let ending = 'Done.';
+    let cancelled = false;
+    let ok = true;
+    try {
+      const listPath = location.pathname;
+      await loadWholeList();
+      const books = dedupe(listedBooks());
+      if (!books.length) { ending = 'No books to borrow on this page.'; ok = false; return; }
+      log(`borrow: ${books.length} books on ${listPath}`);
+      const label = { hold: 'waitlist: places a hold', loaned: 'on your shelf', held: 'on hold' };
+      const want = b => b.state === 'borrow' || b.state === 'hold';
+      const holds = books.filter(b => b.state === 'hold').length;
+      let question = 'Tick the books to borrow.';
+      if (holds) question += `\n${holds} ${holds === 1 ? 'has' : 'have'} a waitlist, so ${holds === 1 ? 'it gets' : 'they get'} a hold instead.`;
+      const todo = await askPick(question,
+        books.map(b => ({ loan: b, ticked: want(b), tag: label[b.state] || '', muted: b.state !== 'hold' })),
+        [{ id: 'all', label: 'All', pick: r => want(r.loan) },
+         { id: 'now', label: 'Available now', pick: r => r.loan.state === 'borrow' },
+         { id: 'none', label: 'None', pick: () => false }],
+        { label: k => `Borrow ${k}`, danger: false });
+      if (!todo) { cancelled = true; return; }
+      log(`borrowing ${todo.length} of ${books.length}:`, todo.map(b => b.title));
+      render(`Borrowing… ${count()}`);
+
+      for (let i = 0; i < todo.length; i++) {
+        const book = todo[i];
+        if (paused && !stopRequested) {
+          render(`Paused. ${count()}. Press Resume to carry on.`);
+          while (paused && !stopRequested) await sleep(200);
+          if (!stopRequested) render(`Borrowing… ${count()}`);
+        }
+        if (stopRequested) { ending = 'Stopped.'; break; }
+        try {
+          interruptible = true;
+          const r = await borrowOne(book, listPath);
+          interruptible = false;
+          if (r.wait) {
+            // Something only you can do in Libby (verify a card, sign in): wait, then try again.
+            fail(`${book.title}: ${r.wait}`);
+            paused = true;
+            render(`${r.wait[0].toUpperCase()}${r.wait.slice(1)}. Do that in Libby, then press Resume.`);
+            while (paused && !stopRequested) await sleep(200);
+            if (stopRequested) { ending = 'Stopped.'; break; }
+            render(`Borrowing… ${count()}`);
+            i--;
+            continue;
+          }
+          note(book, r.ok ? r.result : `not borrowed: ${r.result}`, !!r.ok);
+          if (r.limit) { ending = `Libby says: ${r.result}`; break; }
+        } catch (err) {
+          if (err instanceof StopNow) { ending = 'Stopped.'; break; }
+          fail(`${book.title}:`, err);
+          note(book, 'error: ' + err.message);
+        } finally {
+          interruptible = false;
+        }
+        if (!onAccountScreen() && location.pathname !== listPath) await backToList(listPath);
+        await sleep(1000);  // a moment between books, as a person would take
+      }
+    } catch (err) {
+      fail('borrow run failed:', err);
+      ending = 'Something went wrong: ' + err.message;
+      ok = false;
+    } finally {
+      if (choose) choose(null);
+      log('borrow run finished:', cancelled ? 'cancelled' : ending, count());
       if (!/^(Done|Stopped)\./.test(ending)) ok = false;
       await endRun(results.length ? `${ending} ${count()}.` : ending, { cancelled, ok });
     }

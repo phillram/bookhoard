@@ -1,14 +1,15 @@
 # bookhoard
 
 Download all your Libby books at once, with proper file names. Return them all at once when
-you're done.
+you're done. Borrow a whole series in one go.
 
-bookhoard adds two buttons to the bottom of Libby in your browser:
+bookhoard adds buttons to the bottom of Libby in your browser:
 
 ![Libby's footer with bookhoard's Download and Return buttons on the right](docs/footer.png)
 
 - **Download** saves every book you've borrowed, named like `Children of Time - Adrian Tchaikovsky`.
 - **Return** sends back the books you pick.
+- **Borrow** borrows the books listed on a page, like a whole series. It only shows on those pages.
 
 ## Install
 
@@ -57,6 +58,15 @@ book itself. A few come as a plain `.epub` or `.pdf`, ready to read.
 Books you haven't downloaded yet start unticked, so you don't return one by accident.
 
 ![The Return list with a checkbox for each book](docs/return.png)
+
+## Borrow a series
+
+1. Open the series in Libby: on one of its books, tap **#2 in series** (or whichever number it is).
+2. Click **Borrow** at the bottom.
+3. Tick the books you want, then click **Borrow**. Books with a waitlist get a hold instead.
+
+bookhoard uses whichever of your libraries has a copy now. If a library card needs verifying, it
+pauses until you've done that in Libby, then carries on.
 
 ## Options
 
