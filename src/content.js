@@ -20,7 +20,9 @@
   const onTop = el => {
     const r = el.getBoundingClientRect();
     if (!r.width || !r.height) return false;
-    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    // Look through bookhoard's own panel and footer button: they must not count as covering Libby.
+    const hit = document.elementsFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+      .find(e => e !== host && !navBtn?.contains(e));
     return !!hit && (hit === el || el.contains(hit) || hit.contains(el));
   };
   // Deepest on-screen Libby elements whose text matches re (long-text containers skipped cheaply).
@@ -164,6 +166,7 @@
   let ui = null;
   let running = false;
   let stopRequested = false;
+  let paused = false;
   let results = [];
   let panelOpen = false;  // stays open after a run until closed
 
@@ -209,6 +212,13 @@
     render('Stopping after this book…');
   }
 
+  function togglePause() {
+    if (!running) return;
+    paused = !paused;
+    log(paused ? 'paused' : 'resumed');
+    render(paused ? 'Paused. Press Resume to carry on.' : 'Resuming…');
+  }
+
   function buildPanel() {
     host = document.createElement('div');
     // The host lets clicks through, so it never hides Libby's own buttons from the search above.
@@ -224,7 +234,7 @@
         .status { color: #b8b8b8; flex: 1; min-width: 0; }
         .actions { flex-shrink: 0; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
         .close { background: none; border: 0; color: #b8b8b8; font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px; }
-        .stop, .copy { background: #2a2a2a; border: 1px solid #3a3a3a; color: #d0d0d0; border-radius: 6px;
+        .pause, .stop, .copy { background: #2a2a2a; border: 1px solid #3a3a3a; color: #d0d0d0; border-radius: 6px;
                 font-size: 12px; padding: 2px 8px; cursor: pointer; white-space: nowrap; }
         .row { padding: 3px 0; border-top: 1px solid #333; font-size: 13px; }
         .ok { color: #8fcf9f; }
@@ -232,16 +242,17 @@
       </style>
       <div class="panel" hidden>
         <div class="top"><span class="status"></span>
-          <span class="actions"><button class="stop">Stop</button><button class="copy">Copy log</button><button class="close" title="Close">&times;</button></span></div>
+          <span class="actions"><button class="pause">Pause</button><button class="stop">Stop</button><button class="copy">Copy log</button><button class="close" title="Close">&times;</button></span></div>
         <div class="list"></div>
       </div>`;
     document.body.append(host);
     ui = { panel: root.querySelector('.panel'), status: root.querySelector('.status'), root,
-           copy: root.querySelector('.copy'), stop: root.querySelector('.stop'),
+           copy: root.querySelector('.copy'), stop: root.querySelector('.stop'), pause: root.querySelector('.pause'),
            list: root.querySelector('.list'), close: root.querySelector('.close') };
     ui.close.addEventListener('click', () => { panelOpen = false; results = []; render(''); });
     ui.copy.addEventListener('click', () => copyReport().catch(err => fail('copy log failed:', err)));
     ui.stop.addEventListener('click', requestStop);
+    ui.pause.addEventListener('click', togglePause);
   }
 
   function render(status) {
@@ -252,6 +263,8 @@
     ui.copy.hidden = running;
     ui.stop.hidden = !running;
     ui.stop.disabled = stopRequested;
+    ui.pause.hidden = !running || stopRequested;
+    ui.pause.textContent = paused ? 'Resume' : 'Pause';
     ui.list.replaceChildren(...results.slice().reverse().map(r => {
       const row = document.createElement('div');
       row.className = 'row';
@@ -366,6 +379,7 @@
     running = true;
     panelOpen = true;
     stopRequested = false;
+    paused = false;
     results = [];
     let downloaded = 0;
     const count = () => {
@@ -376,7 +390,8 @@
       log(`${loan.title} [${loan.id}]: ${result}`);
       results.push({ title: loan.title, result, ok });
       if (ok) downloaded++;
-      render(stopRequested ? `Stopping after this book… ${count()}` : `Working… ${count()}`);
+      render(stopRequested ? `Stopping after this book… ${count()}`
+        : paused ? `Paused after this book. ${count()}` : `Working… ${count()}`);
     };
     render('Starting…');
     let ending = 'Done.';
@@ -403,6 +418,7 @@
       let lost = false;
       log(`${shelf.length} loans on the shelf, ${shelf.filter(l => doneIds.has(l.id)).length} done in earlier runs`);
       for (const loan of shelf) {
+        while (paused && !stopRequested) await sleep(200);
         if (stopRequested) { ending = 'Stopped.'; break; }
         if (onAccountScreen()) { ending = ACCOUNT_SCREEN_STOP; fail(ending, location.pathname); break; }
         if (lost) {
@@ -439,6 +455,11 @@
             note(loan, `skipped: ${problem}`);
             continue;
           }
+          // How to open slides in over the Manage Loan sheet: wait until the sheet is gone and the
+          // format rows have appeared, rather than judging a half-drawn screen.
+          for (const t = Date.now(); Date.now() - t < 4000; await sleep(100)) {
+            if (!sheetOpen() && topEls(/^(EPUB|PDF)\b|^other options/i).length) break;
+          }
           log('  How to open shows:', onScreen());
 
           if (!topEls(optionRe(order[0]))[0]) {
@@ -457,20 +478,26 @@
           const [format, button] = found;
           log('  choosing', format);
           await ask({ type: 'expect', overdriveId: loan.titleId, format });
+          const since = Date.now();
           press(button);
 
-          // Libby shows a Done screen once the download has started; confirm if it asks first.
+          // Move on as soon as the browser has started this book's download (Libby only sometimes
+          // shows a Done screen). Click a confirm button if Libby asks first.
           let confirmed = false;
-          let sawDone = false;
-          for (const t = Date.now(); Date.now() - t < 10000;) {
-            if (topEls(/^done$/i).length) { sawDone = true; break; }
+          let started = false;
+          for (const t = Date.now(); Date.now() - t < 15000; await sleep(250)) {
+            if (await ask({ type: 'started', overdriveId: loan.titleId, since })) { started = true; break; }
             const c = !confirmed && topEls(/^(download|continue|confirm|ok|yes|got it)$/i)[0];
             if (c) { log('  confirming:', txt(c)); press(c); confirmed = true; }
-            await sleep(100);
           }
-          if (!sawDone) fail(`${loan.title}: chose ${format} but saw no Done screen within 10s. Screen shows:`, onScreen());
+          if (!started) {
+            fail(`${loan.title}: chose ${format} but no download started within 15s. Screen shows:`, onScreen());
+            note(loan, `${format} chosen, but no download started`);
+            continue;
+          }
+          log(`  download started after ${((Date.now() - since) / 1000).toFixed(1)}s`);
           await markDone(loan);
-          note(loan, sawDone ? format : `${format}? check your downloads`, true);
+          note(loan, format, true);
         } catch (err) {
           fail(`${loan.title}:`, err);
           note(loan, 'error: ' + err.message);

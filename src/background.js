@@ -69,6 +69,17 @@ function fulfillUrlOf(item) {
   return [item.url, item.finalUrl].find(u => u && parseFulfillUrl(u));
 }
 
+// Note when each Libby download starts, so the page can move on as soon as it has (Libby does not
+// always show its "Done" screen).
+api.downloads.onCreated.addListener(async item => {
+  const download = parseFulfillUrl(fulfillUrlOf(item) || '');
+  if (!download) return;
+  const { started = {} } = await sessionStore.get('started');
+  started[download.overdriveId] = Date.now();
+  await sessionStore.set({ started });
+  log('download started for', download.overdriveId);
+});
+
 if (api.downloads.onDeterminingFilename) {
   // Chrome and Edge: suggest the name as the download starts.
   api.downloads.onDeterminingFilename.addListener((item, suggest) => {
@@ -133,6 +144,10 @@ api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           urlRegex: `contentreserve\\.com/[^?]*_${msg.overdriveId}\\.(acsm|epub|pdf)`,
         });
         return found.some(d => d.state !== 'interrupted' && d.exists !== false);
+      }
+      case 'started': {
+        const { started = {} } = await sessionStore.get('started');
+        return (started[msg.overdriveId] || 0) >= msg.since;
       }
       case 'names': {
         const { names = [] } = await sessionStore.get('names');
