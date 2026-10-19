@@ -47,7 +47,7 @@ If your browser asks about downloading multiple files, say yes.
 Click the bookhoard icon in your toolbar.
 
 - **Folder**: where to save, inside your Downloads folder, e.g. `Libby`.
-- **File name**: `{title} - {author}` by default. You can use:
+- **Name pattern**: `{title} - {author}` by default. You can use:
 
   `{title}` `{subtitle}` `{author}` `{authors}` `{authorSort}` `{series}` `{seriesNumber}`
   `{publisher}` `{year}` `{date}` `{isbn}` `{overdriveId}` `{format}` `{drm}` `{library}`

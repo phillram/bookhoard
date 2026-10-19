@@ -6,90 +6,140 @@
   <style>
     :root {
       color-scheme: dark;
-      --bg: #16181d; --panel: #1f2229; --line: #2e323b; --text: #e6e8ec;
-      --muted: #9aa1ad; --accent: #e4407b; --ok: #5fbf7f; --warn: #e0a84e;
-      font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+      --bg: #141518; --card: #1d1f24; --line: #2c2f36; --field: #25282e;
+      --text: #e8e9ec; --muted: #a0a5ae; --accent: #2a9d8f; --ok: #7fc99a; --warn: #e3b25a;
     }
-    body { margin: 0 auto; max-width: 760px; padding: 24px; background: var(--bg); color: var(--text); }
-    h1 { font-size: 20px; margin: 0 0 12px; }
-    h2 { font-size: 13px; margin: 24px 0 8px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-    p { margin: 6px 0; }
-    .muted { color: var(--muted); }
-    .ok { color: var(--ok); }
-    .warn { color: var(--warn); }
-    button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
-             padding: 7px 12px; font: inherit; cursor: pointer; }
-    input[type=text], input[type=number], select { background: var(--panel); color: var(--text);
-             border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font: inherit; }
-    input[type=text] { width: 100%; box-sizing: border-box; }
-    input[type=number] { width: 90px; }
-    label { display: block; margin: 10px 0 4px; }
-    label.inline { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
-    code, .mono { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
-    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-top: 8px; }
-    .panel div { padding: 2px 0; }
-    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
-    td, th { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-    th { color: var(--muted); font-weight: 600; }
-    td:first-child code { cursor: pointer; color: var(--accent); }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    main { max-width: 720px; margin: 0 auto; padding: 32px 24px 64px; }
+    header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+    header img { width: 36px; height: 36px; }
+    h1 { font-size: 22px; font-weight: 650; margin: 0; }
+    #saved { margin-left: auto; color: var(--ok); font-size: 14px; }
+
+    section { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+              padding: 20px 22px; margin-bottom: 16px; }
+    h2 { font-size: 16px; font-weight: 650; margin: 0 0 14px; }
+    .field + .field { margin-top: 16px; }
+    label { display: block; font-weight: 550; margin-bottom: 6px; }
+    .help { color: var(--muted); margin: 6px 0 0; }
+    .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .row label { margin: 0; font-weight: 400; }
+
+    input[type=text], input[type=number], select {
+      font: inherit; color: var(--text); background: var(--field);
+      border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+    }
+    input[type=text] { width: 100%; }
+    input[type=number] { width: 80px; }
+    input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; }
+    .check { display: flex; gap: 10px; align-items: center; font-weight: 400; margin: 0; }
+    button { font: inherit; font-size: 14px; color: var(--text); background: var(--field);
+             border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+
+    code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.88em;
+           background: var(--field); border-radius: 5px; padding: 1px 5px; }
+    #template { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 14px; }
+
+    .preview { margin-top: 12px; background: var(--field); border-radius: 8px; padding: 10px 12px; }
+    .preview div { display: flex; justify-content: space-between; gap: 12px; }
+    .preview code { background: none; padding: 0; font-size: 14px; overflow-wrap: anywhere; }
+    .preview span { color: var(--muted); font-size: 13px; white-space: nowrap; }
+    .warn { color: var(--warn); margin: 8px 0 0; }
+
+    .vars { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; margin-top: 14px; }
+    .vars button { display: flex; align-items: baseline; gap: 8px; text-align: left; width: 100%;
+                   background: none; border: 1px solid transparent; padding: 4px 6px; }
+    .vars button:hover { background: var(--field); border-color: var(--line); }
+    .vars code { color: var(--accent); background: none; padding: 0; font-size: 13.5px; }
+    .vars span { color: var(--muted); font-size: 14px; }
+    @media (max-width: 560px) { .vars { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
-  <h1>bookhoard</h1>
+<main>
+  <header>
+    <img src="../icons/icon-128.png" alt="">
+    <h1>bookhoard</h1>
+    <span id="saved"></span>
+  </header>
 
-  <h2>Where to save</h2>
-  <label for="folder">Folder inside your browser's Downloads folder</label>
-  <input type="text" id="folder" placeholder="(leave empty for Downloads itself)">
-  <p class="muted">Use <code>/</code> for folders inside folders, e.g. <code>Libby/Books</code>.
-    Browsers only let extensions save inside the Downloads folder; to use a different drive or
-    folder, change the browser's own download location in its settings.</p>
+  <section>
+    <h2>Where to save</h2>
+    <div class="field">
+      <label for="folder">Folder</label>
+      <input type="text" id="folder" placeholder="Downloads">
+      <p class="help">A folder inside your Downloads folder, like <code>Libby</code> or <code>Libby/Books</code>.
+        Leave it blank to save straight into Downloads. To save somewhere else entirely, change your
+        browser's download location.</p>
+    </div>
+  </section>
 
-  <h2>File names</h2>
-  <label for="template">Template</label>
-  <input type="text" id="template" class="mono">
-  <p class="muted">Click a variable below to add it. Put optional parts in <code>&lt; &gt;</code>:
-    they are left out when a variable inside is empty, so
-    <code>&lt;{series} {seriesNumber} - &gt;{title}</code> skips the series for standalone books.
-    A <code>/</code> makes a folder, e.g. <code>{author}/{title}</code>. The extension
-    (<code>.epub</code>, <code>.pdf</code> or <code>.acsm</code>) is added for you.</p>
-  <div class="panel" id="preview"></div>
-  <p id="unknown" class="warn" hidden></p>
-  <p><button class="secondary" id="resetTemplate">Back to “{title} - {author}”</button></p>
+  <section>
+    <h2>File names</h2>
+    <div class="field">
+      <label for="template">Name pattern</label>
+      <input type="text" id="template" spellcheck="false">
+      <div class="preview" id="preview"></div>
+      <p id="unknown" class="warn" hidden></p>
+      <p class="help">Click a field below to add it. Anything inside <code>&lt; &gt;</code> is left out
+        when it's empty, so <code>&lt;{series} {seriesNumber} - &gt;{title}</code> only adds the series
+        when there is one. A <code>/</code> makes a folder. The file extension is added for you.</p>
+      <p><button id="resetTemplate">Reset to {title} - {author}</button></p>
+      <div class="vars" id="vars"></div>
+    </div>
+  </section>
 
-  <table>
-    <thead><tr><th>Variable</th><th>What it is</th><th>Example</th></tr></thead>
-    <tbody id="vars"></tbody>
-  </table>
+  <section>
+    <h2>Downloading</h2>
+    <div class="field">
+      <label for="formatOrder">Format</label>
+      <select id="formatOrder">
+        <option value="epub-pdf">EPUB, or PDF if there's no EPUB</option>
+        <option value="epub">EPUB only</option>
+        <option value="pdf-epub">PDF, or EPUB if there's no PDF</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="conflict">If a file with that name already exists</label>
+      <select id="conflict">
+        <option value="uniquify">Keep both</option>
+        <option value="overwrite">Replace it</option>
+      </select>
+    </div>
+    <div class="field">
+      <label class="check"><input type="checkbox" id="skipDownloaded"> Skip books already in this browser's downloads</label>
+    </div>
+    <div class="field row">
+      <label for="limit">Download at most</label>
+      <input type="number" id="limit" min="0" placeholder="all">
+      <label for="limit">books per run</label>
+    </div>
+    <div class="field">
+      <div class="row">
+        <label for="delay">Wait</label>
+        <input type="number" id="delay" min="0" step="1">
+        <label for="delay">seconds between books</label>
+      </div>
+      <p class="help">Leave this at 0. If OverDrive says "too many requests", bookhoard pauses for a
+        minute and slows down on its own. Raise it only if that keeps happening.</p>
+    </div>
+  </section>
 
-  <h2>Formats</h2>
-  <label for="formatOrder">Which format to pick</label>
-  <select id="formatOrder">
-    <option value="epub-pdf">EPUB, or PDF when there is no EPUB</option>
-    <option value="epub">EPUB only</option>
-    <option value="pdf-epub">PDF, or EPUB when there is no PDF</option>
-  </select>
-
-  <h2>Other</h2>
-  <label for="conflict">When a file with that name already exists</label>
-  <select id="conflict">
-    <option value="uniquify">Keep both (adds a number)</option>
-    <option value="overwrite">Replace it</option>
-  </select>
-  <label class="inline"><input type="checkbox" id="skipDownloaded">
-    Skip loans already in the browser's download history</label>
-  <label class="inline">Download at most <input type="number" id="limit" min="0" placeholder="all"> books per run</label>
-  <label class="inline">Wait <input type="number" id="delay" min="0" step="1"> extra seconds between books</label>
-  <p class="muted">0 means no extra wait. If OverDrive's download server says "too many requests",
-    bookhoard waits a minute and slows down by itself; set a few seconds here if it keeps happening.</p>
-
-  <h2>Troubleshooting</h2>
-  <label class="inline"><input type="checkbox" id="debug">
-    Debug: log every step to the console, marked <code>[bookhoard]</code></label>
-  <p class="muted">Errors are always logged. Steps show in the Libby tab's console (F12); file
-    naming shows in the extension's background console. <strong>Copy log</strong> on the results
-    panel copies all of it, ready to paste into a bug report.</p>
-
-  <p id="saved" class="ok"></p>
-  <script src="options.js" type="module"></script>
+  <section>
+    <h2>Troubleshooting</h2>
+    <div class="field">
+      <label class="check"><input type="checkbox" id="debug"> Debug logging</label>
+      <p class="help">Writes each step to the browser console. To share it, click <strong>Copy log</strong>
+        on the results panel and paste it into a bug report.</p>
+    </div>
+  </section>
+</main>
+<script src="options.js" type="module"></script>
 </body>
 </html>

@@ -25,30 +25,29 @@ function current() {
 function preview() {
   const s = current();
   const lines = [
-    [buildPath(s, SAMPLE, 'acsm'), 'copy-protected EPUB'],
-    [buildPath(s, STANDALONE, 'pdf'), 'DRM-free PDF, no series'],
+    [buildPath(s, SAMPLE, 'acsm'), 'book in a series'],
+    [buildPath(s, STANDALONE, 'pdf'), 'standalone book'],
   ];
   $('preview').replaceChildren(...lines.map(([path, what]) => {
     const div = document.createElement('div');
     const code = document.createElement('code');
     code.textContent = 'Downloads/' + path;
     const note = document.createElement('span');
-    note.className = 'muted';
-    note.textContent = '  (' + what + ')';
+    note.textContent = what;
     div.append(code, note);
     return div;
   }));
   const unknown = unknownVariables(s.template);
   $('unknown').hidden = !unknown.length;
   $('unknown').textContent = unknown.length
-    ? `Not a variable, so it will be left empty: ${unknown.map(n => '{' + n + '}').join(', ')}`
+    ? `${unknown.map(n => '{' + n + '}').join(', ')} isn't a field, so it will come out blank.`
     : '';
 }
 
 let savedTimer;
 async function save() {
   await api.storage.local.set({ settings: current() });
-  $('saved').textContent = 'Saved.';
+  $('saved').textContent = 'Saved';
   clearTimeout(savedTimer);
   savedTimer = setTimeout(() => { $('saved').textContent = ''; }, 1500);
 }
@@ -71,22 +70,21 @@ async function init() {
   for (const f of FIELDS) {
     const el = $(f);
     if (el.type === 'checkbox') el.checked = !!s[f];
-    else el.value = el.type === 'number' ? (s[f] || '') : s[f];
+    // "Download at most" shows blank for no limit; the wait shows its number, including 0.
+    else el.value = f === 'limit' ? (s[f] || '') : s[f];
   }
+  // Each field is a button: click to add it to the name pattern. Hover shows an example.
   $('vars').replaceChildren(...VARIABLES.map(([name, what, example]) => {
-    const tr = document.createElement('tr');
-    const td = (child, cls) => {
-      const cell = document.createElement('td');
-      if (cls) cell.className = cls;
-      cell.append(child);
-      return cell;
-    };
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.title = example ? `For example: ${example}` : 'Often empty';
     const code = document.createElement('code');
     code.textContent = '{' + name + '}';
-    code.title = 'Add to the template';
-    code.addEventListener('click', () => insertVariable(name));
-    tr.append(td(code), td(what), td(example || '(often empty)', 'muted'));
-    return tr;
+    const label = document.createElement('span');
+    label.textContent = what;
+    button.append(code, label);
+    button.addEventListener('click', () => insertVariable(name));
+    return button;
   }));
   for (const f of FIELDS) {
     $(f).addEventListener('input', preview);
