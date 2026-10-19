@@ -159,9 +159,10 @@
     for (let k = 0; k < 6; k++) {
       if (onAccountScreen()) return false;
       if (there()) return true;
-      // Anywhere but a loan's own screens (/shelf/loans/<id>/...), which close with Done or Back:
-      // the library's pages, search, holds, tags, the menu. Use the footer's Shelf button.
-      if (!/^\/shelf\/loans\/[^/]+\//.test(location.pathname)) {
+      // Anywhere but the shelf (with a sheet open, say) or a loan's own screens
+      // (/shelf/loans/<id>/...), which close with Done, Close or Back: the library's pages, search,
+      // holds, tags, the menu. Use the footer's Shelf button.
+      if (!/^\/shelf(\/loans)?\/?$/.test(location.pathname) && !/^\/shelf\/loans\/[^/]+\//.test(location.pathname)) {
         if (await shelfFromFooter()) {
           for (let w = 0; w < 30 && !there(); w++) await sleep(100);
           continue;
