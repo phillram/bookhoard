@@ -312,6 +312,7 @@
 
   function buildPanel() {
     host = document.createElement('div');
+    host.dataset.bookhoardPanel = '';
     // The host lets clicks through, so it never hides Libby's own buttons from the search above.
     // Pinned in the bottom-right corner, clear of Libby's footer and of its book screens (which sit
     // on the left). It never moves, so it is easy to reach.
@@ -400,6 +401,14 @@
   }
 
   function render(status) {
+    try {
+      draw(status);
+    } catch (err) {
+      fail('could not update the panel:', err);
+    }
+  }
+
+  function draw(status) {
     if (!ui) return;
     ui.panel.hidden = !panelOpen;
     if (status) ui.status.textContent = status;
@@ -438,7 +447,13 @@
     for (const [btn, name, label] of [[navBtn, 'download', 'Download'], [retBtn, 'return', 'Return']]) {
       if (!btn) continue;
       const mine = running && mode === name;
-      btn.querySelector('.app-footer-nav-label [role=text]').textContent = mine ? (choose ? 'Cancel' : 'Stop') : label;
+      let text = btn.querySelector('.app-footer-nav-label [role=text]');
+      if (!text) {
+        btn.querySelector('.app-footer-nav-label')?.remove();
+        btn.insertAdjacentHTML('beforeend', '<span class="app-footer-nav-label"><span role="text"></span></span>');
+        text = btn.querySelector('.app-footer-nav-label [role=text]');
+      }
+      text.textContent = mine ? (choose ? 'Cancel' : 'Stop') : label;
       btn.style.opacity = running && !mine ? '0.4' : '';
     }
   }
@@ -492,7 +507,7 @@
   // Libby centres its five footer buttons around the Menu orb, so ours must not take up space in
   // the row: they sit one and two steps to the right of the last button instead.
   function placeNavButtons(bar) {
-    const own = [...bar.children].filter(c => c !== navBtn && c !== retBtn);
+    const own = [...bar.children].filter(c => !String(c.className).includes('-bookhoard'));
     if (own.length < 2) return;
     if (getComputedStyle(bar).position === 'static') bar.style.position = 'relative';
     const last = own[own.length - 1];
@@ -551,6 +566,16 @@
   // Libby rebuilds its footer at times, so keep checking the button is still there.
   function syncUi() {
     if (!document.body) return;
+    // The extension was reloaded or updated: this copy is out of date, so take its UI away.
+    if (!api.runtime?.id) {
+      clearInterval(syncTimer);
+      stopRequested = true;
+      choose?.(null);
+      navBtn?.remove();
+      retBtn?.remove();
+      host?.remove();
+      return;
+    }
     const bar = document.querySelector('.app-footer-nav-bar-controls');
     if (bar && !(navBtn && bar.contains(navBtn) && retBtn && bar.contains(retBtn))) {
       buildNavButtons(bar);
@@ -929,7 +954,10 @@
     }
   }
 
+  for (const old of document.querySelectorAll('[class*="app-footer-nav-bar-button-bookhoard"], [data-bookhoard-panel]')) {
+    old.remove();
+  }
+  const syncTimer = setInterval(syncUi, 500);
   syncUi();
-  setInterval(syncUi, 500);
   explainInterruptedRun().catch(err => fail('could not check the last run:', err));
 })();

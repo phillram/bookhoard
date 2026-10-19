@@ -24,7 +24,8 @@ Get the zip for your browser from the
    restarting Firefox.
 
 To update, download the new zip and replace the old folder, then click the reload button on
-bookhoard in your browser's extensions page.
+bookhoard in your browser's extensions page. Reload your Libby tab afterwards so it uses the new
+version.
 
 ## Use
 
