@@ -1226,7 +1226,7 @@
       const action = buttons.find(b => BORROW_BUTTON.test(txt(b)));
       let state = !action ? '' : /^place hold/i.test(txt(action)) ? 'hold' : 'borrow';
       if (/on your loans shelf/i.test(all)) state = 'loaned';
-      else if (/on your holds shelf|on hold/i.test(all)) state = 'held';
+      else if (/on your holds shelf|on hold/i.test(all)) state = state === 'borrow' ? 'heldNow' : 'held';
       if (!state || !cover || !link) continue;
       books.push({
         title: txt(cover).match(COVER)[1],
@@ -1276,7 +1276,7 @@
   // One copy of each book: editions of the same book (same series number and title) are merged,
   // keeping one you can borrow now over a waitlisted one.
   function dedupe(books) {
-    const rank = { borrow: 0, hold: 1, loaned: 2, held: 3 };
+    const rank = { borrow: 0, heldNow: 1, hold: 2, loaned: 3, held: 4 };
     const key = b => `${b.series}|${b.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()}`;
     const best = new Map();
     for (const b of books) {
@@ -1297,11 +1297,21 @@
     const current = txt(name);
     name.click();
     await sleep(1500);
-    const choices = [...document.querySelectorAll('.circ-option-library-choice')].filter(onTop);
-    const other = c => ![current, ...avoid].some(name => txt(c).endsWith(name));
-    const now = choices.find(c => other(c) && /^(\d+) of \d+ cop(y|ies) available/i.test(txt(c)) &&
-      Number(txt(c).match(/^(\d+)/)[1]) > 0);
-    const owns = holdOk && choices.find(c => other(c) && !/^no copies/i.test(txt(c)));
+    // The whole list, not only the rows on screen: with many cards it scrolls.
+    const screen = activeScreen();
+    const choices = [...document.querySelectorAll('.circ-option-library-choice')]
+      .filter(c => c.getClientRects().length && screen.contains(c));
+    // (textContent: rows below the fold may not have their layout text yet.)
+    const label = c => c.textContent.replace(/\s+/g, ' ').trim();
+    const other = c => ![current, ...avoid].some(name => label(c).endsWith(name));
+    const now = choices.find(c => other(c) && /^(\d+) of \d+ cop(y|ies) available/i.test(label(c)) &&
+      Number(label(c).match(/^(\d+)/)[1]) > 0);
+    // For a hold: a library that owns the book, shortest wait first ("About 2 weeks wait").
+    const days = c => {
+      const m = label(c).match(/(\d+)\s*(day|week|month)s?\s*wait/i);
+      return m ? Number(m[1]) * { day: 1, week: 7, month: 30 }[m[2].toLowerCase()] : 9999;
+    };
+    const owns = holdOk && choices.filter(c => other(c) && !/^no copies/i.test(label(c))).sort((a, b) => days(a) - days(b))[0];
     const pick = now || owns;
     if (!pick) {
       // Nothing better: close the list (its Back, or by choosing the library that was already set).
@@ -1311,7 +1321,9 @@
       await sleep(1000);
       return null;
     }
-    const library = txt(pick).replace(/^.*? at /, '');
+    const library = label(pick).replace(/^.*? at /, '');
+    pick.scrollIntoView({ block: 'center' });
+    await sleep(400);
     pick.click();
     await sleep(2000);
     return { library, hold: !now };
@@ -1340,7 +1352,7 @@
     await settle(10000);
     let switched = null;
     const tried = [];
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 6; attempt++) {
       if (onAccountScreen()) return { wait: 'Libby wants you to sign in' };
       const needsVerifying = !!verify();
       if (needsVerifying && !libraryNameButton()) {
@@ -1439,15 +1451,15 @@
       const books = dedupe(listedBooks());
       if (!books.length) { ending = 'No books to borrow on this page.'; ok = false; return; }
       log(`borrow: ${books.length} books on ${listPath}`);
-      const label = { hold: 'waitlist: places a hold', loaned: 'on your shelf', held: 'on hold' };
-      const want = b => b.state === 'borrow' || b.state === 'hold';
+      const label = { hold: 'waitlist: places a hold', loaned: 'on your shelf', held: 'on hold', heldNow: 'on hold: borrow now' };
+      const want = b => b.state === 'borrow' || b.state === 'hold' || b.state === 'heldNow';
       const holds = books.filter(b => b.state === 'hold').length;
       let question = 'Tick the books to borrow.';
       if (holds) question += `\n${holds} ${holds === 1 ? 'has' : 'have'} a waitlist, so ${holds === 1 ? 'it gets' : 'they get'} a hold instead.`;
       const todo = await askPick(question,
         books.map(b => ({ loan: b, ticked: want(b), tag: label[b.state] || '', muted: b.state !== 'hold' })),
         [{ id: 'all', label: 'All', pick: r => want(r.loan) },
-         { id: 'now', label: 'Available now', pick: r => r.loan.state === 'borrow' },
+         { id: 'now', label: 'Available now', pick: r => r.loan.state === 'borrow' || r.loan.state === 'heldNow' },
          { id: 'none', label: 'None', pick: () => false }],
         { label: k => `Borrow ${k}`, danger: false });
       if (!todo) { cancelled = true; return; }
