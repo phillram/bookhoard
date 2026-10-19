@@ -78,6 +78,9 @@
   <label class="inline"><input type="checkbox" id="skipDownloaded">
     Skip loans already in the browser's download history</label>
   <label class="inline">Download at most <input type="number" id="limit" min="0" placeholder="all"> books per run</label>
+  <label class="inline">Wait <input type="number" id="delay" min="0" step="1"> seconds between books</label>
+  <p class="muted">OverDrive's download server refuses requests that come too fast ("too many requests").
+    A few seconds between books avoids that. If it happens anyway, bookhoard waits a minute and slows down.</p>
 
   <h2>Troubleshooting</h2>
   <label class="inline"><input type="checkbox" id="debug">

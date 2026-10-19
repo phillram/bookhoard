@@ -8,6 +8,7 @@ export const DEFAULTS = {
   conflict: 'uniquify',            // 'uniquify' | 'overwrite'
   skipDownloaded: true,
   limit: 0,                        // most books per run; 0 = no limit
+  delay: 3,                        // seconds to wait between books
   debug: false,                    // log every step to the console
 };
 

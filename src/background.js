@@ -80,6 +80,14 @@ api.downloads.onCreated.addListener(async item => {
   log('download started for', download.overdriveId);
 });
 
+// OverDrive's download server answers 429 Too Many Requests when books are fetched too fast.
+// Only watched, never changed: the page uses this to back off and retry.
+api.webRequest?.onHeadersReceived.addListener(async details => {
+  if (details.statusCode !== 429 || !parseFulfillUrl(details.url)) return;
+  await sessionStore.set({ rateLimited: { at: Date.now(), url: shortUrl(details.url) } });
+  fail('download server said 429 Too Many Requests for', shortUrl(details.url));
+}, { urls: ['https://*.contentreserve.com/*'] });
+
 if (api.downloads.onDeterminingFilename) {
   // Chrome and Edge: suggest the name as the download starts.
   api.downloads.onDeterminingFilename.addListener((item, suggest) => {
@@ -148,6 +156,10 @@ api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'started': {
         const { started = {} } = await sessionStore.get('started');
         return (started[msg.overdriveId] || 0) >= msg.since;
+      }
+      case 'rateLimited': {
+        const { rateLimited } = await sessionStore.get('rateLimited');
+        return rateLimited && rateLimited.at >= msg.since ? rateLimited : null;
       }
       case 'names': {
         const { names = [] } = await sessionStore.get('names');

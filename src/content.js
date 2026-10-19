@@ -373,9 +373,17 @@
     if (!inFlight) return;
     await api.storage.local.remove('inFlight');
     if (Date.now() - inFlight.at > 2 * 60 * 1000) return;
-    const what = onAccountScreen() ? `switched to its ${location.pathname} screen` : 'reloaded the page';
-    const message = `While opening "${inFlight.title}", Libby ${what}, so bookhoard stopped. ` +
-      "It hasn't clicked anything since. Finish or close that screen in Libby, then try again.";
+    const limited = await ask({ type: 'rateLimited', since: inFlight.at - 5000 });
+    let message;
+    if (limited) {
+      message = `OverDrive's download server said "too many requests" while bookhoard was on ` +
+        `"${inFlight.title}", so the run stopped. Wait a minute, then click Download again: ` +
+        'books already downloaded are skipped. A longer wait between books in the options helps.';
+    } else {
+      const what = onAccountScreen() ? `switched to its ${location.pathname} screen` : 'reloaded the page';
+      message = `While opening "${inFlight.title}", Libby ${what}, so bookhoard stopped. ` +
+        "It hasn't clicked anything since. Finish or close that screen in Libby, then try again.";
+    }
     fail(message);
     syncUi();
     panelOpen = true;
@@ -413,6 +421,25 @@
       const order = { 'epub-pdf': ['EPUB', 'PDF'], epub: ['EPUB'], 'pdf-epub': ['PDF', 'EPUB'] }[settings.formatOrder || 'epub-pdf'];
       const skipDownloaded = settings.skipDownloaded !== false;
       const max = Number(settings.limit) > 0 ? Number(settings.limit) : Infinity;
+      let gapMs = Math.max(0, Number(settings.delay ?? 3)) * 1000;
+      const runStart = Date.now();
+      let lastLimit = 0;
+      const retried = new Set();
+      // Wait, but give up early if Stop is pressed.
+      const pauseFor = async (ms, status) => {
+        if (status) render(status);
+        for (const end = Date.now() + ms; Date.now() < end && !stopRequested;) await sleep(200);
+      };
+      // Did the download server say "too many requests" since we last looked? Then slow down.
+      const checkRateLimit = async () => {
+        const hit = await ask({ type: 'rateLimited', since: Math.max(runStart, lastLimit + 1) });
+        if (!hit) return false;
+        lastLimit = hit.at;
+        gapMs = Math.max(gapMs * 2, 10000);
+        fail(`download server said "too many requests"; waiting 60s, then ${gapMs / 1000}s between books`);
+        await pauseFor(60000, 'OverDrive asked to slow down. Waiting a minute…');
+        return true;
+      };
       const { done = [] } = await api.storage.local.get('done');
       const doneIds = new Set(done);
       const markDone = async loan => {
@@ -424,7 +451,8 @@
       const shelf = readShelf();
       let lost = false;
       log(`${shelf.length} loans on the shelf, ${shelf.filter(l => doneIds.has(l.id)).length} done in earlier runs`);
-      for (const loan of shelf) {
+      for (let i = 0; i < shelf.length; i++) {
+        const loan = shelf[i];
         while (paused && !stopRequested) await sleep(200);
         if (stopRequested) { ending = 'Stopped.'; break; }
         if (onAccountScreen()) { ending = ACCOUNT_SCREEN_STOP; fail(ending, location.pathname); break; }
@@ -498,6 +526,12 @@
             if (c) { log('  confirming:', txt(c)); press(c); confirmed = true; }
           }
           if (!started) {
+            if ((await checkRateLimit()) && !retried.has(loan.id)) {
+              retried.add(loan.id);
+              log(`  trying ${loan.title} again`);
+              i--;
+              continue;
+            }
             fail(`${loan.title}: chose ${format} but no download started within 15s. Screen shows:`, onScreen());
             note(loan, `${format} chosen, but no download started`);
             continue;
@@ -505,6 +539,7 @@
           log(`  download started after ${((Date.now() - since) / 1000).toFixed(1)}s`);
           await markDone(loan);
           note(loan, format, true);
+          if (!(await checkRateLimit()) && gapMs) await pauseFor(gapMs);
         } catch (err) {
           fail(`${loan.title}:`, err);
           note(loan, 'error: ' + err.message);
