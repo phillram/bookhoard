@@ -75,7 +75,7 @@
   const onScreen = () => [...new Set([...document.querySelectorAll('button, a, [role=button]')]
     .filter(e => !navBtn?.contains(e) && onTop(e)).map(txt).filter(Boolean))].slice(0, 15);
 
-  const HOW_TO_OPEN = /^(EPUB|PDF)\b|^other options|^kindle\b.*devices|^libby on this device/i;
+  const HOW_TO_OPEN = /^(EPUB|PDF)\b|^other options|^kindle\b.*devices|^libby (on this device|open the book)/i;
   const COVER = /^[A-Za-z]+: '(.+)'\. Cover image/;
 
   // Loans on the shelf: id (cardId-titleId, from the card's Return link), title, card's main button.
@@ -440,17 +440,11 @@
         await pauseFor(60000, 'OverDrive asked to slow down. Waiting a minute…');
         return true;
       };
-      const { done = [] } = await api.storage.local.get('done');
-      const doneIds = new Set(done);
-      const markDone = async loan => {
-        doneIds.add(loan.id);
-        await api.storage.local.set({ done: [...doneIds] });
-      };
       const optionRe = name => new RegExp('^' + name + '\\b');
 
       const shelf = readShelf();
       let lost = false;
-      log(`${shelf.length} loans on the shelf, ${shelf.filter(l => doneIds.has(l.id)).length} done in earlier runs`);
+      log(`${shelf.length} loans on the shelf`);
       for (let i = 0; i < shelf.length; i++) {
         const loan = shelf[i];
         while (paused && !stopRequested) await sleep(200);
@@ -462,10 +456,10 @@
           break;
         }
         if (downloaded >= max) break;
-        if (doneIds.has(loan.id)) { log(`${loan.title} [${loan.id}]: done in an earlier run, skipped`); continue; }
         if (/audiobook/i.test(loan.main)) { note(loan, 'audiobook, skipped'); continue; }
+        // The browser's download history (finished downloads only) says what is already done, so a
+        // download that failed is simply tried again next time.
         if (skipDownloaded && (await ask({ type: 'downloaded', overdriveId: loan.titleId }))) {
-          await markDone(loan);
           note(loan, 'already downloaded');
           continue;
         }
@@ -537,7 +531,6 @@
             continue;
           }
           log(`  download started after ${((Date.now() - since) / 1000).toFixed(1)}s`);
-          await markDone(loan);
           note(loan, format, true);
           if (!(await checkRateLimit()) && gapMs) await pauseFor(gapMs);
         } catch (err) {

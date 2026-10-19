@@ -103,9 +103,35 @@ if (api.downloads.onDeterminingFilename) {
     return true;  // suggest() is called asynchronously
   });
 } else {
-  // Firefox has no way to rename a download in flight, so cancel Libby's copy and download the
-  // same link again under the right name.
+  // Firefox has no way to rename a download in flight. So fetch the same link again under the
+  // right name, and remove Libby's copy only once ours has finished: if ours fails, Libby's copy
+  // is kept under its own name rather than losing the book.
   const ours = new Set();
+  const replacing = new Map();  // our download id -> Libby's download id
+
+  const removeLibbysCopy = async original => {
+    try {
+      const [item] = await api.downloads.search({ id: original });
+      if (item?.state === 'in_progress') await api.downloads.cancel(original);
+      else if (item?.state === 'complete' && item.exists !== false) await api.downloads.removeFile(original);
+      await api.downloads.erase({ id: original });
+    } catch (err) {
+      log("could not remove Libby's copy:", err);
+    }
+  };
+  const settle = async (oursId, state, error) => {
+    const original = replacing.get(oursId);
+    if (original === undefined) return;
+    if (state === 'complete') {
+      replacing.delete(oursId);
+      await removeLibbysCopy(original);
+    } else if (state === 'interrupted') {
+      replacing.delete(oursId);
+      fail("renamed copy failed, so Libby's copy was kept under its own name:", error);
+      remember({ from: '(renamed copy)', to: "(failed; Libby's copy kept)", error: String(error) });
+    }
+  };
+
   api.downloads.onCreated.addListener(async item => {
     const url = fulfillUrlOf(item);
     if (!url || ours.has(item.url)) return;
@@ -113,17 +139,18 @@ if (api.downloads.onDeterminingFilename) {
       const t = await targetFor(url);
       if (!t) return;
       ours.add(item.url);
-      try {
-        await api.downloads.cancel(item.id);
-        await api.downloads.erase({ id: item.id });
-      } catch (err) {
-        log('original download already finished or gone:', err);
-      }
-      await api.downloads.download({ url: item.url, filename: t.filename, conflictAction: t.conflictAction });
+      const id = await api.downloads.download({ url: item.url, filename: t.filename, conflictAction: t.conflictAction });
+      replacing.set(id, item.id);
+      // A tiny .acsm can finish before we start listening for it.
+      const [now] = await api.downloads.search({ id });
+      if (now && now.state !== 'in_progress') await settle(id, now.state, now.error);
     } catch (err) {
       fail('could not re-download', shortUrl(url), 'under the new name:', err);
       remember({ from: shortUrl(url), to: '(failed)', error: String(err) });
     }
+  });
+  api.downloads.onChanged.addListener(delta => {
+    if (delta.state) settle(delta.id, delta.state.current, delta.error?.current);
   });
 }
 
