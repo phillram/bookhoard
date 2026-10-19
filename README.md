@@ -66,7 +66,8 @@ Books you haven't downloaded yet start unticked, so you don't return one by acci
 3. Tick the books you want, then click **Borrow**. Books with a waitlist get a hold instead.
 
 bookhoard uses whichever of your libraries has a copy now. If a library card needs verifying, it
-pauses until you've done that in Libby, then carries on.
+tries your other libraries instead. If none of them can lend the book, it skips it and says so;
+verify the card in Libby and run Borrow again for the rest.
 
 ## Options
 

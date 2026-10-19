@@ -1288,33 +1288,37 @@
 
   const libraryNameButton = () => [...document.querySelectorAll('.circ-option-library-name')].find(onTop);
 
-  // On Libby's borrow screen: if it offers a hold, or the card needs verifying, choose a library
-  // that has a copy now instead (Libby's own "compare availability" list). Returns what it did.
-  async function chooseLibraryWithCopy() {
+  // On Libby's borrow screen, open its "compare availability" list and switch to another library:
+  // one with a copy now, or (holdOk) failing that one that owns the book, for a hold there.
+  // Returns { library, hold } or null (the list is closed again).
+  async function chooseAnotherLibrary(holdOk, avoid = []) {
     const name = libraryNameButton();
-    if (!name) return '';
+    if (!name) return null;
     const current = txt(name);
     name.click();
     await sleep(1500);
     const choices = [...document.querySelectorAll('.circ-option-library-choice')].filter(onTop);
-    const pick = choices.find(c => /^(\d+) of \d+ cop(y|ies) available/i.test(txt(c)) &&
-      Number(txt(c).match(/^(\d+)/)[1]) > 0 && !txt(c).endsWith(current));
+    const other = c => ![current, ...avoid].some(name => txt(c).endsWith(name));
+    const now = choices.find(c => other(c) && /^(\d+) of \d+ cop(y|ies) available/i.test(txt(c)) &&
+      Number(txt(c).match(/^(\d+)/)[1]) > 0);
+    const owns = holdOk && choices.find(c => other(c) && !/^no copies/i.test(txt(c)));
+    const pick = now || owns;
     if (!pick) {
       // Nothing better: close the list (its Back, or by choosing the library that was already set).
       const back = [...document.querySelectorAll('.interview-block-back-button')].find(onTop) ||
         choices.find(c => txt(c).endsWith(current));
       back?.click();
       await sleep(1000);
-      return '';
+      return null;
     }
     const library = txt(pick).replace(/^.*? at /, '');
     pick.click();
     await sleep(2000);
-    return library;
+    return { library, hold: !now };
   }
 
-  // Borrow (or hold) one book from the list screen. Returns { ok, result } or { wait: why } when
-  // you need to do something in Libby first (verify a card, sign in).
+  // Borrow (or hold) one book from the list screen. Returns { ok, result }, { skip: why } when a
+  // library card needs verifying and no other library can lend it, or { wait: why } for a sign-in.
   async function borrowOne(book, listPath) {
     if (location.pathname !== listPath && !(await backToList(listPath))) return { result: 'could not get back to the list' };
     const card = listedBooks().find(b => b.titleId === book.titleId)?.card;
@@ -1326,39 +1330,58 @@
     const button = fresh && [...fresh.card.querySelectorAll('button, a, [role=button]')].find(b => BORROW_BUTTON.test(txt(b)) && onTop(b));
     if (!button) return { result: "its Borrow button isn't on screen" };
     pressBorrow(button);
-    // Libby's borrow screen: a confirm button, or Verify Card, or a sign-in screen.
+    // Libby's borrow screen: a confirm button, or Verify Card, or a sign-in screen. Libby can also
+    // ask to verify the card only after Borrow is pressed ("verify your library card").
     const confirmButton = () => [...document.querySelectorAll('.circ-confirm-button')].find(b => onTop(b) && BORROW_BUTTON.test(txt(b)));
-    const verify = () => topEls(/^verify card$/i)[0];
-    for (const t = activeNow(); activeNow() - t < 10000 && !confirmButton() && !verify() && !onAccountScreen(); ) await sleep(200);
-    if (onAccountScreen()) return { wait: 'Libby wants you to sign in' };
-    let switched = '';
-    if (verify() || /hold/i.test(txt(confirmButton()))) {
-      switched = await chooseLibraryWithCopy();
-      if (switched) log(`  switched to ${switched}, which has a copy`);
-      for (const t = activeNow(); activeNow() - t < 5000 && !confirmButton() && !verify(); ) await sleep(200);
+    const verify = () => topEls(/^verify card$/i)[0] || topEls(/verify your library card/i)[0];
+    const settle = async ms => {
+      for (const t = activeNow(); activeNow() - t < ms && !confirmButton() && !verify() && !onAccountScreen(); ) await sleep(200);
+    };
+    await settle(10000);
+    let switched = null;
+    const tried = [];
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (onAccountScreen()) return { wait: 'Libby wants you to sign in' };
+      const needsVerifying = !!verify();
+      if (needsVerifying && !libraryNameButton()) {
+        // Asked after Borrow was pressed: Libby's Back returns to the borrow screen.
+        [...document.querySelectorAll('.interview-block-back-button')].find(onTop)?.click();
+        await sleep(1200);
+        await settle(5000);
+      }
+      if (needsVerifying || (!switched && /hold/i.test(txt(confirmButton())))) {
+        tried.push(txt(libraryNameButton()) || 'this library');
+        const next = await chooseAnotherLibrary(needsVerifying, tried);
+        if (next) {
+          switched = next;
+          log(`  switched to ${next.library}` + (next.hold ? ' (for a hold there)' : ', which has a copy'));
+        }
+        await settle(5000);
+        if (!next && needsVerifying) return { skip: `needs your ${tried[0]} card verified` };
+      }
+      if (verify()) continue;
+      const confirm = confirmButton();
+      if (!confirm) return { result: "Libby's borrow screen didn't show a Borrow button" };
+      const what = pressBorrow(confirm);
+      log(`  confirming: ${what}${switched ? ` (at ${switched.library})` : ''}`);
+      // Done when Libby shows Keep Browsing; it may ask to verify the card instead, or say why not.
+      let done = null;
+      for (const t = activeNow(); activeNow() - t < 15000 && !done && !verify() && !onAccountScreen(); await sleep(200)) {
+        done = topEls(/^keep browsing$/i)[0];
+      }
+      if (verify()) { log('  Libby asked to verify the card after Borrow'); continue; }
+      interruptible = false;  // under way: see it through
+      const outcome = txt(document.querySelector('.screen-title-circ-outcome'));
+      if (!done) {
+        log('  no Keep Browsing. Screen shows:', onScreen(), outcome);
+        return { result: outcome || 'Libby did not confirm it', limit: /limit|maximum|too many/i.test(outcome) };
+      }
+      press(done);
+      await sleep(800);
+      const at = switched ? ` (${switched.library})` : '';
+      return { ok: true, result: (/hold/i.test(what) ? 'hold placed' : 'borrowed') + at };
     }
-    if (verify()) {
-      const library = txt(libraryNameButton()) || 'this library';
-      return { wait: `your card at ${library} needs verifying` };
-    }
-    const confirm = confirmButton();
-    if (!confirm) return { result: "Libby's borrow screen didn't show a Borrow button" };
-    const what = pressBorrow(confirm);
-    log(`  confirming: ${what}${switched ? ` (at ${switched})` : ''}`);
-    interruptible = false;  // under way: see it through
-    // Done when Libby shows Keep Browsing; otherwise it says why not.
-    let done = null;
-    for (const t = activeNow(); activeNow() - t < 15000 && !done; await sleep(200)) {
-      done = topEls(/^keep browsing$/i)[0];
-    }
-    const outcome = txt(document.querySelector('.screen-title-circ-outcome'));
-    if (!done) {
-      log('  no Keep Browsing. Screen shows:', onScreen(), outcome);
-      return { result: outcome || 'Libby did not confirm it', limit: /limit|maximum|too many/i.test(outcome) };
-    }
-    press(done);
-    await sleep(800);
-    return { ok: true, result: /hold/i.test(what) ? 'hold placed' : 'borrowed' + (switched ? ` (${switched})` : '') };
+    return { skip: `needs your ${tried[0] || 'library'} card verified` };
   }
 
   // Back to the list page the run started on: Keep Browsing, or Libby's own Back button at the top
@@ -1449,8 +1472,13 @@
           interruptible = true;
           const r = await borrowOne(book, listPath);
           interruptible = false;
+          if (r.skip) {
+            // A card needs verifying and no other library could lend it: skip it, carry on.
+            note(book, `skipped: ${r.skip}`);
+            continue;
+          }
           if (r.wait) {
-            // Something only you can do in Libby (verify a card, sign in): wait, then try again.
+            // Something only you can do in Libby (sign in): wait, then try again.
             fail(`${book.title}: ${r.wait}`);
             paused = true;
             render(`${r.wait[0].toUpperCase()}${r.wait.slice(1)}. Do that in Libby, then press Resume.`);
