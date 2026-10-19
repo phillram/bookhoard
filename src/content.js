@@ -514,8 +514,19 @@
           // shows a Done screen). Click a confirm button if Libby asks first.
           let confirmed = false;
           let started = false;
+          let doneSince = 0;
           for (const t = Date.now(); Date.now() - t < 15000; await sleep(250)) {
             if (await ask({ type: 'started', overdriveId: loan.titleId, since })) { started = true; break; }
+            // Libby's Done screen means it handed over the file. If bookhoard still hasn't seen the
+            // download two seconds later, trust Libby rather than waiting out the full 15 seconds.
+            if (topEls(/^done$/i).length) {
+              doneSince ||= Date.now();
+              if (Date.now() - doneSince > 2000) {
+                started = true;
+                fail(`${loan.title}: Libby showed Done but bookhoard didn't see the download; check its file name`);
+                break;
+              }
+            }
             const c = !confirmed && topEls(/^(download|continue|confirm|ok|yes|got it)$/i)[0];
             if (c) { log('  confirming:', txt(c)); press(c); confirmed = true; }
           }

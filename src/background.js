@@ -65,9 +65,37 @@ async function targetFor(url) {
   return { filename, conflictAction: settings.conflict };
 }
 
+// DRM-free EPUBs redirect from the OverDrive link to a storage server that names the file
+// {GUID}Fmt810.epub. Firefox reports the download under that second address, so remember where
+// each one came from.
+const redirectedFrom = new Map();  // redirected address -> OverDrive link
+api.webRequest?.onBeforeRedirect.addListener(details => {
+  if (!parseFulfillUrl(details.url)) return;
+  redirectedFrom.set(details.redirectUrl, details.url);
+  if (redirectedFrom.size > 200) redirectedFrom.delete(redirectedFrom.keys().next().value);
+}, { urls: ['https://*.contentreserve.com/*'] });
+
+// The OverDrive link a download came from, or undefined if it isn't a Libby download.
 function fulfillUrlOf(item) {
-  return [item.url, item.finalUrl].find(u => u && parseFulfillUrl(u));
+  for (const u of [item.url, item.finalUrl]) {
+    if (!u) continue;
+    if (parseFulfillUrl(u)) return u;
+    if (redirectedFrom.has(u)) return redirectedFrom.get(u);
+  }
+  return undefined;
 }
+
+// Finished downloads, by OverDrive ID, so "already downloaded" works however the browser
+// recorded the address.
+api.downloads.onChanged.addListener(async delta => {
+  if (delta.state?.current !== 'complete') return;
+  const [item] = await api.downloads.search({ id: delta.id });
+  const download = item && parseFulfillUrl(fulfillUrlOf(item) || '');
+  if (!download) return;
+  const { completed = {} } = await api.storage.local.get('completed');
+  completed[download.overdriveId] = delta.id;
+  await api.storage.local.set({ completed });
+});
 
 // Note when each Libby download starts, so the page can move on as soon as it has (Libby does not
 // always show its "Done" screen).
@@ -134,12 +162,12 @@ if (api.downloads.onDeterminingFilename) {
 
   api.downloads.onCreated.addListener(async item => {
     const url = fulfillUrlOf(item);
-    if (!url || ours.has(item.url)) return;
+    if (!url || ours.has(url)) return;
     try {
       const t = await targetFor(url);
       if (!t) return;
-      ours.add(item.url);
-      const id = await api.downloads.download({ url: item.url, filename: t.filename, conflictAction: t.conflictAction });
+      ours.add(url);
+      const id = await api.downloads.download({ url, filename: t.filename, conflictAction: t.conflictAction });
       replacing.set(id, item.id);
       // A tiny .acsm can finish before we start listening for it.
       const [now] = await api.downloads.search({ id });
@@ -185,7 +213,11 @@ api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const found = await api.downloads.search({
           urlRegex: `contentreserve\\.com/[^?]*_${msg.overdriveId}\\.(acsm|epub|pdf)`,
         });
-        return found.some(d => d.state !== 'interrupted' && d.exists !== false);
+        if (found.some(d => d.state !== 'interrupted' && d.exists !== false)) return true;
+        const { completed = {} } = await api.storage.local.get('completed');
+        if (completed[msg.overdriveId] === undefined) return false;
+        const [item] = await api.downloads.search({ id: completed[msg.overdriveId] });
+        return !!item && item.state === 'complete' && item.exists !== false;
       }
       case 'started': {
         const { started = {} } = await sessionStore.get('started');
