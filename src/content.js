@@ -106,8 +106,9 @@
   // us the shelf is really showing: /shelf or /shelf/loans (How to open is .../fulfill).
   const onShelf = () => /^\/shelf(\/loans)?\/?$/.test(location.pathname) && !sheetOpen() && readShelf().length > 0;
 
+  // Up to 15 seconds: after a full page load Libby can take a while to show the shelf.
   async function shelfReady() {
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 150; i++) {
       if (readShelf().length) return true;
       await sleep(100);
     }
@@ -169,6 +170,7 @@
   let paused = false;
   let results = [];
   let panelOpen = false;  // stays open after a run until closed
+  let resumeCancelled = false;  // × pressed during the countdown after "too many requests"
 
   // A download-tray icon drawn like Libby's own footer icons (64x64, same classes, so Libby's
   // light and dark themes color it the same way).
@@ -262,7 +264,7 @@
     ui = { panel: root.querySelector('.panel'), status: root.querySelector('.status'), root,
            copy: root.querySelector('.copy'), stop: root.querySelector('.stop'), pause: root.querySelector('.pause'),
            list: root.querySelector('.list'), close: root.querySelector('.close') };
-    ui.close.addEventListener('click', () => { panelOpen = false; results = []; render(''); });
+    ui.close.addEventListener('click', () => { resumeCancelled = true; panelOpen = false; results = []; render(''); });
     ui.copy.addEventListener('click', () => copyReport().catch(err => fail('copy log failed:', err)));
     ui.stop.addEventListener('click', requestStop);
     ui.pause.addEventListener('click', togglePause);
@@ -382,9 +384,19 @@
     const limited = await ask({ type: 'rateLimited', since: inFlight.at - 5000 });
     let message;
     if (limited) {
-      message = `OverDrive's download server said "too many requests" while bookhoard was on ` +
-        `"${inFlight.title}", so the run stopped. Wait a minute, then click Download again: ` +
-        'books already downloaded are skipped. A longer wait between books in the options helps.';
+      fail(`download server said "too many requests" at "${inFlight.title}"; carrying on in 60s`);
+      syncUi();
+      panelOpen = true;
+      resumeCancelled = false;
+      for (let left = 60; left > 0; left--) {
+        if (running) return;  // Download was clicked during the countdown
+        if (resumeCancelled) { render('Cancelled. Click Download to carry on.'); return; }
+        render(`OverDrive said "too many requests" at "${inFlight.title}". Carrying on in ${left}s… ` +
+          '(× to cancel)');
+        await sleep(1000);
+      }
+      run().catch(err => fail('run failed:', err));
+      return;
     } else {
       const what = onAccountScreen() ? `switched to its ${location.pathname} screen` : 'reloaded the page';
       message = `While opening "${inFlight.title}", Libby ${what}, so bookhoard stopped. ` +
@@ -417,6 +429,7 @@
     render('Starting…');
     let ending = 'Done.';
     try {
+      if (!onShelf() && /^\/shelf\//.test(location.pathname)) await backToShelf();
       if (!(await shelfReady())) {
         ending = 'No loans showing. Open your Libby shelf, then try again.';
         fail('no loans found on', location.pathname, '- screen shows:', onScreen());
@@ -427,23 +440,30 @@
       const order = { 'epub-pdf': ['EPUB', 'PDF'], epub: ['EPUB'], 'pdf-epub': ['PDF', 'EPUB'] }[settings.formatOrder || 'epub-pdf'];
       const skipDownloaded = settings.skipDownloaded !== false;
       const max = Number(settings.limit) > 0 ? Number(settings.limit) : Infinity;
-      let gapMs = Math.max(0, Number(settings.delay ?? 0)) * 1000;
+      // A break after every few books keeps OverDrive from refusing downloads.
+      const batchSize = Math.max(1, Number(settings.batchSize ?? 10) || 10);
+      let batchPauseMs = Math.max(0, Number(settings.batchPause ?? 60)) * 1000;
+      let sinceBreak = 0;
       const runStart = Date.now();
       let lastLimit = 0;
       const retried = new Set();
-      // Wait, but give up early if Stop is pressed.
-      const pauseFor = async (ms, status) => {
-        if (status) render(status);
-        for (const end = Date.now() + ms; Date.now() < end && !stopRequested;) await sleep(200);
+      // Wait with a countdown, but give up early if Stop is pressed.
+      const pauseFor = async (ms, why) => {
+        for (const end = Date.now() + ms; Date.now() < end && !stopRequested; await sleep(250)) {
+          render(`${why} (carrying on in ${Math.ceil((end - Date.now()) / 1000)}s) ${count()}`);
+        }
+        if (!stopRequested) render(`Working… ${count()}`);
       };
-      // Did the download server say "too many requests" since we last looked? Then slow down.
+      // Did the download server say "too many requests" since we last looked? Then wait a minute,
+      // and take breaks more often from now on.
       const checkRateLimit = async () => {
         const hit = await ask({ type: 'rateLimited', since: Math.max(runStart, lastLimit + 1) });
         if (!hit) return false;
         lastLimit = hit.at;
-        gapMs = Math.max(gapMs * 2, 10000);
-        fail(`download server said "too many requests"; waiting 60s, then ${gapMs / 1000}s between books`);
-        await pauseFor(60000, 'OverDrive asked to slow down. Waiting a minute…');
+        batchPauseMs = Math.max(batchPauseMs, 60000);
+        sinceBreak = 0;
+        fail('download server said "too many requests"; waiting a minute');
+        await pauseFor(60000, 'OverDrive said "too many requests". Waiting a minute');
         return true;
       };
       const optionRe = name => new RegExp('^' + name + '\\b');
@@ -554,7 +574,12 @@
           }
           log(`  download started after ${((Date.now() - since) / 1000).toFixed(1)}s`);
           note(loan, format, true);
-          if (!(await checkRateLimit()) && gapMs) await pauseFor(gapMs);
+          sinceBreak++;
+          if (!(await checkRateLimit()) && batchPauseMs && sinceBreak >= batchSize) {
+            sinceBreak = 0;
+            log(`  taking a ${batchPauseMs / 1000}s break after ${batchSize} books`);
+            await pauseFor(batchPauseMs, `Pausing so OverDrive doesn't refuse downloads.`);
+          }
         } catch (err) {
           fail(`${loan.title}:`, err);
           note(loan, 'error: ' + err.message);

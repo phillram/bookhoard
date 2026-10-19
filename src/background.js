@@ -137,6 +137,13 @@ api.webRequest?.onHeadersReceived.addListener(async details => {
   if (details.statusCode !== 429 || !parseFulfillUrl(details.url)) return;
   await sessionStore.set({ rateLimited: { at: Date.now(), url: shortUrl(details.url) } });
   fail('download server said 429 Too Many Requests for', shortUrl(details.url));
+  // Libby opens downloads in its own tab, so the browser's error page replaces Libby. Load the
+  // shelf again (a normal visit; reloading the book's own screen can upset Libby), and the page
+  // carries on after a pause.
+  if (details.type === 'main_frame' && details.tabId >= 0) {
+    setTimeout(() => api.tabs.update(details.tabId, { url: 'https://libbyapp.com/shelf' })
+      .catch(err => log('could not reopen the shelf:', err)), 1500);
+  }
 }, { urls: ['https://*.contentreserve.com/*'] });
 
 if (api.downloads.onDeterminingFilename) {
@@ -211,11 +218,14 @@ if (api.downloads.onDeterminingFilename) {
 
 api.action.onClicked.addListener(() => api.runtime.openOptionsPage());
 
-// 0.1.7 and 0.1.8 defaulted to a 3-second wait between books; the default is now none.
-api.runtime.onInstalled.addListener(async ({ reason, previousVersion }) => {
-  if (reason !== 'update' || !['0.1.7', '0.1.8'].includes(previousVersion)) return;
+// The old "wait between books" setting was replaced by "pause after every few books".
+api.runtime.onInstalled.addListener(async ({ reason }) => {
+  if (reason !== 'update') return;
   const { settings } = await api.storage.local.get('settings');
-  if (settings?.delay === 3) await api.storage.local.set({ settings: { ...settings, delay: 0 } });
+  if (settings && 'delay' in settings) {
+    const { delay, ...rest } = settings;
+    await api.storage.local.set({ settings: rest });
+  }
 });
 
 api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

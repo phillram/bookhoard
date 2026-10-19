@@ -122,12 +122,15 @@
     </div>
     <div class="field">
       <div class="row">
-        <label for="delay">Wait</label>
-        <input type="number" id="delay" min="0" step="1">
-        <label for="delay">seconds between books</label>
+        <label for="batchPause">Pause</label>
+        <input type="number" id="batchPause" min="0" step="5">
+        <label for="batchSize">seconds after every</label>
+        <input type="number" id="batchSize" min="1" step="1">
+        <label for="batchSize">books</label>
       </div>
-      <p class="help">Leave this at 0. If OverDrive says "too many requests", bookhoard pauses for a
-        minute and slows down on its own. Raise it only if that keeps happening.</p>
+      <p class="help">OverDrive refuses downloads ("too many requests") after roughly 15 to 20 books in a
+        few minutes. A short break every so often avoids that. If it happens anyway, bookhoard waits a
+        minute and carries on. Set the pause to 0 to never pause.</p>
     </div>
   </section>
 
