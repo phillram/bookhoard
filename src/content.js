@@ -367,10 +367,18 @@
       </g>
     </svg>`;
 
-  // A closed book with a plus on its cover: borrowing.
-  const BORROW_ICON = RETURN_ICON.replace(
-    'M31,24.5 L27.5,28 L31,31.5 M27.5,28 L36.5,28 C39.5,28 41.5,30.4 41.5,33.25 C41.5,36.1 39.5,38.5 36.5,38.5 L31,38.5',
-    'M35,24 L35,40 M27,32 L43,32');
+  // A stack of books with a plus: borrowing a whole collection.
+  const BORROW_ICON = `
+    <svg version="1.1" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" class="shibui-graphic icon"
+         aria-hidden="true" data-decorative="">
+      <g fill="none" stroke="none">
+        <path class="color-shadow icon-solid" d="M13,42 L45,42 L45,49 L13,49 Z" fill="#000000" fill-opacity="0.08"></path>
+        <path class="color-highlight icon-hollow" d="M14,41 L44,41 C45.1,41 46,41.9 46,43 L46,48 C46,49.1 45.1,50 44,50 L14,50 C12.9,50 12,49.1 12,48 L12,43 C12,41.9 12.9,41 14,41 Z M18,32 L44,32 C45.1,32 46,32.9 46,34 L46,39 C46,40.1 45.1,41 44,41 L18,41 C16.9,41 16,40.1 16,39 L16,34 C16,32.9 16.9,32 18,32 Z M12,23 L40,23 C41.1,23 42,23.9 42,25 L42,30 C42,31.1 41.1,32 40,32 L12,32 C10.9,32 10,31.1 10,30 L10,25 C10,23.9 10.9,23 12,23 Z M17,41 L17,50 M21,32 L21,41 M15,23 L15,32"
+              stroke="#000000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path class="icon-hollow" d="M50,12 L50,24 M44,18 L56,18"
+              stroke="#000000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+      </g>
+    </svg>`;
 
   function footerButton(bar, { name, mine, label, aria, icon, start }) {
     const btn = document.createElement('button');
