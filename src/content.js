@@ -143,11 +143,29 @@
 
   // Close whatever Libby has open (Done, Back, or the sheet's own dismiss button) until the shelf
   // is showing again. After returning the last loan the shelf is empty, which also counts.
+  // Libby's own Shelf button in the footer: the way to the shelf from pages that aren't on top of it
+  // (the library's home page, search, tags). Changing the address instead would reload Libby.
+  async function shelfFromFooter() {
+    const button = document.querySelector('.app-footer-nav-bar-button-shelf') ||
+      [...document.querySelectorAll('.app-footer-nav-bar-controls button')].find(b => !ours(b) && /^shelf$/i.test(txt(b)));
+    if (!button) return false;
+    button.click();
+    for (let w = 0; w < 50 && !/^\/shelf(\/|$)/.test(location.pathname); w++) await sleep(100);
+    return true;
+  }
+
   async function backToShelf(emptyOk = false) {
     const there = emptyOk ? onShelfPage : onShelf;
     for (let k = 0; k < 6; k++) {
       if (onAccountScreen()) return false;
       if (there()) return true;
+      // Somewhere else in Libby (not a screen over the shelf): use the footer's Shelf button.
+      if (!/^\/shelf(\/|$)/.test(location.pathname)) {
+        if (await shelfFromFooter()) {
+          for (let w = 0; w < 30 && !there(); w++) await sleep(100);
+          continue;
+        }
+      }
       // Prefer Done, then the sheet's own close buttons, then Back.
       const close = [/^done$/i, /^(dismiss dialog|close)$/i, /^back$/i].map(re => topEls(re)[0]).find(Boolean);
       if (close) press(close);
@@ -695,7 +713,7 @@
     render('Starting…');
     let ending = 'Done.';
     try {
-      if (!onShelf() && /^\/shelf\//.test(location.pathname)) await backToShelf();
+      if (!onShelfPage()) await backToShelf(true);
       if (!(await shelfReady())) {
         ending = 'No loans showing. Open your Libby shelf, then try again.';
         fail('no loans found on', location.pathname, '- screen shows:', onScreen());
@@ -963,7 +981,7 @@
     render('Looking at your loans…');
     let ending = 'Done.';
     try {
-      if (!onShelf() && /^\/shelf\//.test(location.pathname)) await backToShelf();
+      if (!onShelfPage()) await backToShelf(true);
       if (!(await shelfReady())) {
         ending = 'No loans showing. Open your Libby shelf, then try again.';
         return;
