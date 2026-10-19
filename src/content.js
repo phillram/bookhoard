@@ -1225,6 +1225,9 @@
   // state: 'borrow', 'hold' (waitlist), 'loaned' (already on your shelf), 'held' (already on hold).
   function listedBooks() {
     const books = [];
+    // Your loans, from the shelf cards Libby keeps in the page: a series page can still show a book
+    // you've just borrowed as available.
+    const onLoan = new Set(readShelf().map(l => l.titleId));
     for (const card of activeScreen().querySelectorAll('.title-tile-shell')) {
       if (!card.getClientRects().length) continue;
       const cover = [...card.querySelectorAll('*')].find(e => COVER.test(txt(e)));
@@ -1233,7 +1236,7 @@
       const all = txt(card);
       const action = buttons.find(b => BORROW_BUTTON.test(txt(b)));
       let state = !action ? '' : /^place hold/i.test(txt(action)) ? 'hold' : 'borrow';
-      if (/on your loans shelf/i.test(all)) state = 'loaned';
+      if (/on your loans shelf/i.test(all) || onLoan.has(link?.match(/\/(\d+)\/?$/)?.[1])) state = 'loaned';
       else if (/on your holds shelf|on hold/i.test(all)) state = state === 'borrow' ? 'heldNow' : 'held';
       if (!state || !cover || !link) continue;
       books.push({
@@ -1281,11 +1284,13 @@
     await sleep(300);
   }
 
-  // One copy of each book: editions of the same book (same series number and title) are merged,
-  // keeping one you can borrow now over a waitlisted one.
+  // One copy of each book: editions of the same book (same title; a card for a book you have
+  // doesn't show its series number, so that can't be part of it) are merged.
+  // If you already have any edition, that's the one shown (so you don't borrow a second copy);
+  // otherwise one you can borrow now beats a waitlisted one.
   function dedupe(books) {
-    const rank = { borrow: 0, heldNow: 1, hold: 2, loaned: 3, held: 4 };
-    const key = b => `${b.series}|${b.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()}`;
+    const rank = { loaned: 0, borrow: 1, heldNow: 2, hold: 3, held: 4 };
+    const key = b => b.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
     const best = new Map();
     for (const b of books) {
       const was = best.get(key(b));
