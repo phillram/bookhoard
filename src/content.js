@@ -183,8 +183,8 @@
     return (await waitTop(HOW_TO_OPEN, 5000)) ? null : 'How to open did not appear after Read With...';
   }
 
-  // Manage Loan -> Return Early -> Libby's own confirm. Returns null once the loan's card has gone
-  // from the shelf, or why not.
+  // Manage Loan -> Return Early -> Libby's "Returning" screen (/shelf/loans/<id>/return) -> its
+  // RETURN LOAN button. Returns null once the loan's card has gone from the shelf, or why not.
   async function returnLoan(loan) {
     const problem = await openManageLoan(loan);
     if (problem) return problem;
@@ -198,13 +198,15 @@
     for (const t = Date.now(); Date.now() - t < 10000; await sleep(200)) {
       if (onAccountScreen()) return `Libby went to ${location.pathname}`;
       if (gone()) break;
-      // Libby asks "are you sure?": click its Return button. Only once the Manage Loan sheet is
-      // covered, and never the button just clicked, so a redrawn sheet isn't taken for the question.
-      // Only real buttons count (not a heading that says Return). Up to twice, 2 seconds apart.
-      if (clicks >= 2 || Date.now() - lastClick < 2000 || topEls(/^(renew loan|read with)/i).length) continue;
+      // Libby asks on its "Returning" screen. Confirm only there, and only for this loan: the address
+      // names it. Its RETURN LOAN button, or failing that any real button saying Return (not the
+      // "Returning" heading). Up to twice, 2 seconds apart.
+      if (clicks >= 2 || Date.now() - lastClick < 2000) continue;
+      if (location.pathname.replace(/\/$/, '') !== `/shelf/loans/${loan.id}/return`) continue;
       const confirm = topEls(RETURN_BUTTON)
         .map(e => e.closest('button, a, [role=button]'))
-        .find(b => b && !b.contains(early) && !early.contains(b) && !ours(b));
+        .filter(b => b && !b.contains(early) && !early.contains(b) && !ours(b))
+        .sort((a, b) => b.matches('.circ-confirm-button') - a.matches('.circ-confirm-button'))[0];
       if (confirm) {
         confirmed = pressReturn(confirm);
         clicks++;
@@ -214,9 +216,8 @@
     }
     if (!gone()) {
       log('  still on the shelf. Screen shows:', onScreen());
-      // Close Libby's question so it doesn't sit over the shelf (Escape, never its Cancel button).
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
-      return confirmed ? 'Libby still shows it after confirming' : "Libby didn't ask to confirm, and still shows it";
+      // Getting back to the shelf (Libby's Back button) happens after this, as for every book.
+      return confirmed ? 'Libby still shows it after confirming' : "Libby's Returning screen didn't appear";
     }
     // Check it is really gone once Libby is back on the shelf, not just hidden behind a screen.
     await backToShelf(true);
