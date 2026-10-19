@@ -42,6 +42,10 @@
     .link { font: inherit; font-size: 14px; color: var(--accent); background: none; border: 0;
             padding: 0; cursor: pointer; }
     .link:hover { text-decoration: underline; }
+    .btn { font: inherit; font-size: 14px; color: var(--text); background: var(--field);
+           border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+    .btn:hover { border-color: var(--accent); }
+    #copied { color: var(--ok); font-size: 14px; }
 
     code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.88em;
            background: var(--field); border-radius: 5px; padding: 1px 5px; }
@@ -61,7 +65,7 @@
     .vars span { color: var(--muted); }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; }
     .grid select { width: 100%; }
-    .grid + .field { margin-top: 14px; }
+    .grid + .field, .help + .field { margin-top: 14px; }
     @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -134,7 +138,14 @@
 
   <section>
     <h2>Troubleshooting</h2>
-    <label class="check"><input type="checkbox" id="debug"> Also show each step in the browser console</label>
+    <div class="row">
+      <button class="btn" id="copyLog" type="button">Copy last log</button>
+      <span id="copied"></span>
+    </div>
+    <p class="help">The log of your last run, to paste into a bug report. It's there even after the panel has closed.</p>
+    <div class="field">
+      <label class="check"><input type="checkbox" id="debug"> Also show each step in the browser console</label>
+    </div>
   </section>
 </main>
 <script src="options.js" type="module"></script>

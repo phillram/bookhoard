@@ -79,7 +79,8 @@ saved, and which format to get.
 
 ## Something not working?
 
-Click **Copy log** on the panel and paste it into a
+Click **Copy log** on the panel (or **Copy last log** in the options, once the panel has closed)
+and paste it into a
 [new issue](https://github.com/phillram/bookhoard/issues). It lists your book titles and what
 happened to each one, but not your download links.
 

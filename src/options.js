@@ -67,6 +67,33 @@ function insertVariable(name) {
   save();
 }
 
+// The last run's log, as the panel's Copy log gives it. Read from storage only when clicked.
+async function copyLastLog() {
+  const { lastLog, settings = {} } = await api.storage.local.get(['lastLog', 'settings']);
+  const say = text => {
+    $('copied').textContent = text;
+    setTimeout(() => { $('copied').textContent = ''; }, 2000);
+  };
+  if (!lastLog) return say('No run yet');
+  const names = (await api.runtime.sendMessage({ type: 'names' })) || [];
+  const text = [
+    `bookhoard ${api.runtime.getManifest().version} log, saved ${new Date(lastLog.at).toISOString()}`,
+    navigator.userAgent,
+    `settings: ${JSON.stringify(settings)}`,
+    '',
+    'Results:',
+    ...lastLog.results.map(r => `  ${r.ok ? 'OK  ' : 'SKIP'} ${r.title}: ${r.result}`),
+    '',
+    'File names:',
+    ...names.map(n => `  ${n.time.slice(11, 19)} ${n.from} -> ${n.to}${n.error ? '  ERROR ' + n.error : ''}`),
+    '',
+    'Trace:',
+    ...lastLog.trace,
+  ].join('\n');
+  await navigator.clipboard.writeText(text);
+  say('Copied');
+}
+
 async function init() {
   const { settings = {} } = await api.storage.local.get('settings');
   const s = { ...DEFAULTS, ...settings };
@@ -94,6 +121,9 @@ async function init() {
   }
   $('template').addEventListener('input', save);
   $('folder').addEventListener('input', save);
+  $('copyLog').addEventListener('click', () => copyLastLog().catch(err => {
+    $('copied').textContent = 'Could not copy: ' + err.message;
+  }));
   $('resetTemplate').addEventListener('click', () => {
     $('template').value = DEFAULTS.template;
     preview();
