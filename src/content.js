@@ -184,7 +184,9 @@
   }
 
   // Manage Loan -> Return Early -> Libby's "Returning" screen (/shelf/loans/<id>/return) -> its
-  // RETURN LOAN button. Returns null once the loan's card has gone from the shelf, or why not.
+  // RETURN LOAN button -> Libby's "returned" screen (Go To Shelf, Similar Titles) -> the shelf.
+  // Returns null once the loan's card has gone from the shelf, or why not. Libby keeps the card in
+  // the page behind the "returned" screen, so the shelf itself is checked.
   async function returnLoan(loan) {
     const problem = await openManageLoan(loan);
     if (problem) return problem;
@@ -198,6 +200,7 @@
     for (const t = Date.now(); Date.now() - t < 10000; await sleep(200)) {
       if (onAccountScreen()) return `Libby went to ${location.pathname}`;
       if (gone()) break;
+      if (confirmed && topEls(/^go to shelf$/i).length) break;  // Libby's "returned" screen
       // Libby asks on its "Returning" screen. Confirm only there, and only for this loan: the address
       // names it. Its RETURN LOAN button, or failing that any real button saying Return (not the
       // "Returning" heading). Up to twice, 2 seconds apart.
@@ -214,14 +217,19 @@
         log(`  confirming: ${confirmed}`);
       }
     }
-    if (!gone()) {
-      log('  still on the shelf. Screen shows:', onScreen());
-      // Getting back to the shelf (Libby's Back button) happens after this, as for every book.
-      return confirmed ? 'Libby still shows it after confirming' : "Libby's Returning screen didn't appear";
+    if (!confirmed && !gone()) {
+      log('  no Returning screen. Screen shows:', onScreen());
+      return "Libby's Returning screen didn't appear";
     }
-    // Check it is really gone once Libby is back on the shelf, not just hidden behind a screen.
+    // Back to the shelf (Go To Shelf, else Back), and give Libby a moment to drop the card there.
+    log('  after confirming, screen shows:', onScreen());
+    const toShelf = topEls(/^go to shelf$/i)[0];
+    if (toShelf) press(toShelf);
     await backToShelf(true);
-    return gone() ? null : 'it came back on the shelf';
+    for (const t = Date.now(); Date.now() - t < 5000 && !gone(); ) await sleep(200);
+    if (gone()) return null;
+    log('  still on the shelf. Screen shows:', onScreen());
+    return 'Libby still shows it on the shelf after confirming';
   }
 
   // ---- The footer button and the progress panel --------------------------------------------
