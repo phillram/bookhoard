@@ -293,9 +293,13 @@ api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const found = await api.downloads.search({
           urlRegex: `contentreserve\\.com/[^?]*_${msg.overdriveId}\\.(acsm|epub|pdf)`,
         });
-        if (found.some(d => d.state !== 'interrupted' && d.exists !== false)) return true;
+        // ever: downloaded at some point, even if the file has since been moved (say, into an
+        // ebook library). Otherwise the file must still be there, so a missing one is fetched again.
+        const there = d => msg.ever || d.exists !== false;
+        if (found.some(d => d.state !== 'interrupted' && there(d))) return true;
         const { completed = {} } = await api.storage.local.get('completed');
         if (completed[msg.overdriveId] === undefined) return false;
+        if (msg.ever) return true;
         const [item] = await api.downloads.search({ id: completed[msg.overdriveId] });
         return !!item && item.state === 'complete' && item.exists !== false;
       }

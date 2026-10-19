@@ -204,8 +204,8 @@
       if (confirmed && topEls(/^go to shelf$/i).length) break;  // Libby's "returned" screen
       // Libby asks on its "Returning" screen. Confirm only there, and only for this loan: the address
       // names it. Its RETURN LOAN button, or failing that any real button saying Return (not the
-      // "Returning" heading). Up to twice, 2 seconds apart.
-      if (clicks >= 2 || Date.now() - lastClick < 2000) continue;
+      // "Returning" heading). A second time only if Libby still shows it 5 seconds later.
+      if (clicks >= 2 || Date.now() - lastClick < 5000) continue;
       if (location.pathname.replace(/\/$/, '') !== `/shelf/loans/${loan.id}/return`) continue;
       const confirm = topEls(RETURN_BUTTON)
         .map(e => e.closest('button, a, [role=button]'))
@@ -897,7 +897,7 @@
       const loans = readShelf();
       const notDownloaded = [];
       for (const loan of loans) {
-        if (!(await ask({ type: 'downloaded', overdriveId: loan.titleId }))) notDownloaded.push(loan);
+        if (!(await ask({ type: 'downloaded', overdriveId: loan.titleId, ever: true }))) notDownloaded.push(loan);
       }
       log(`return: ${loans.length} loans, ${notDownloaded.length} not downloaded in this browser`);
       // Every loan, ticked or not, so nothing goes back by surprise.
