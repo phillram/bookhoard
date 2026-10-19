@@ -1,6 +1,8 @@
 // File-name templates: settings defaults, the variables a template can use, and turning a
 // template plus a book's details into a safe relative download path.
 
+// Libby's download server allows a burst of about 16 books, then roughly 5 more a minute. Ten
+// books then two minutes' pause stays under that on long runs.
 export const DEFAULTS = {
   folder: '',                      // subfolder inside the browser's Downloads folder; '' = Downloads itself
   template: '{title} - {author}',
@@ -9,7 +11,7 @@ export const DEFAULTS = {
   skipDownloaded: true,
   limit: 0,                        // most books per run; 0 = no limit
   batchSize: 10,                   // pause after this many books...
-  batchPause: 60,                  // ...for this many seconds (0 = never pause)
+  batchPause: 120,                 // ...for this many seconds (0 = never pause)
   debug: false,                    // log every step to the console
 };
 

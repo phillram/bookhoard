@@ -269,6 +269,12 @@ api.runtime.onInstalled.addListener(async ({ reason }) => {
     const { delay, ...rest } = settings;
     await api.storage.local.set({ settings: rest });
   }
+  // The old default pause (60 seconds after 10 books) was too fast for long runs. Move anyone
+  // still on it to the new default; a pause someone chose themselves is left alone.
+  const { settings: now } = await api.storage.local.get('settings');
+  if (now && Number(now.batchPause) === 60 && Number(now.batchSize ?? 10) === 10) {
+    await api.storage.local.set({ settings: { ...now, batchPause: DEFAULTS.batchPause } });
+  }
 });
 
 api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

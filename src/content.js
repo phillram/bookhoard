@@ -597,6 +597,10 @@
 
   // ---- The download run -----------------------------------------------------------------------
 
+  // After "too many requests": long enough for Libby's download server to allow a full batch again
+  // (it refills at roughly 5 books a minute).
+  const RECOVER_MS = 120000;
+
   const ACCOUNT_SCREEN_STOP =
     "Libby switched to one of its sign-in or backup screens, so bookhoard stopped. " +
     "It hasn't clicked anything there. Finish or close that screen in Libby, then try again.";
@@ -611,11 +615,11 @@
     const limited = await ask({ type: 'rateLimited', since: inFlight.at - 5000 });
     let message;
     if (limited) {
-      fail(`download server said "too many requests" at "${inFlight.title}"; carrying on in 60s`);
+      fail(`download server said "too many requests" at "${inFlight.title}"; carrying on in ${RECOVER_MS / 1000}s`);
       syncUi();
       panelOpen = true;
       resumeCancelled = false;
-      for (let left = 60; left > 0; left--) {
+      for (let left = RECOVER_MS / 1000; left > 0; left--) {
         if (running) return;  // Download was clicked during the countdown
         if (resumeCancelled) { render('Cancelled. Click Download to carry on.'); return; }
         render(`Libby asked bookhoard to slow down at "${inFlight.title}". Carrying on in ${left}s… ` +
@@ -689,15 +693,15 @@
         }
         if (!stopRequested) render(`Working… ${count()}`);
       };
-      // Did the download server say "too many requests" since we last looked? Then wait a minute,
-      // and take breaks more often from now on.
+      // Did the download server say "too many requests" since we last looked? Then wait long enough
+      // for a full batch, and take longer breaks from now on.
       const checkRateLimit = async () => {
         const hit = await ask({ type: 'rateLimited', since: Math.max(runStart, lastLimit + 1) });
         if (!hit) return false;
         lastLimit = hit.at;
-        batchPauseMs = Math.max(batchPauseMs, 60000);
-        fail('download server said "too many requests"; waiting a minute');
-        await pauseFor(60000, 'Libby asked bookhoard to slow down. Waiting a minute');
+        batchPauseMs = Math.max(batchPauseMs, RECOVER_MS);
+        fail('download server said "too many requests"; waiting two minutes');
+        await pauseFor(RECOVER_MS, 'Libby asked bookhoard to slow down. Waiting two minutes');
         await setPace({ count: 0, lastAt: Date.now() });
         if (!stopRequested) await retryRenames();
         return true;
@@ -851,7 +855,7 @@
       // and fetch it again, unless Stop was pressed (then the next run does it).
       if (perBook > 1) await sleep(3000);
       if (perBook > 1 && !stopRequested && !(await checkRateLimit()) && (await ask({ type: 'renamesWaiting' }))) {
-        await pauseFor(60000, 'Libby refused a renamed copy. Waiting a minute to try it again');
+        await pauseFor(RECOVER_MS, 'Libby refused a renamed copy. Waiting two minutes to try it again');
         if (!stopRequested) await retryRenames();
       }
     } catch (err) {
