@@ -298,19 +298,18 @@ api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         return true;
       }
       case 'downloaded': {
+        // Downloaded before, even if the file has since been moved (say, into an ebook library) or
+        // the browser's download history cleared. bookhoard's own record of finished downloads
+        // comes first; the history only adds what it has from before that record existed.
         if (!/^\d+$/.test(String(msg.overdriveId))) return false;
+        const { completed = {} } = await api.storage.local.get('completed');
+        if (completed[msg.overdriveId] !== undefined) return true;
         const found = await api.downloads.search({
           urlRegex: `contentreserve\\.com/[^?]*_${msg.overdriveId}\\.(acsm|epub|pdf)`,
         });
-        // ever: downloaded at some point, even if the file has since been moved (say, into an
-        // ebook library). Otherwise the file must still be there, so a missing one is fetched again.
-        const there = d => msg.ever || d.exists !== false;
-        if (found.some(d => d.state !== 'interrupted' && there(d))) return true;
-        const { completed = {} } = await api.storage.local.get('completed');
-        if (completed[msg.overdriveId] === undefined) return false;
-        if (msg.ever) return true;
-        const [item] = await api.downloads.search({ id: completed[msg.overdriveId] });
-        return !!item && item.state === 'complete' && item.exists !== false;
+        const done = found.find(d => d.state === 'complete');
+        if (done) await api.storage.local.set({ completed: { ...completed, [msg.overdriveId]: done.id } });
+        return !!done || found.some(d => d.state === 'in_progress');
       }
       case 'started': {
         const { started = {} } = await sessionStore.get('started');

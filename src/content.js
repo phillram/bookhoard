@@ -9,7 +9,11 @@
   window.__bookhoard = true;
 
   const api = globalThis.browser ?? globalThis.chrome;
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  // During a book's steps, Stop takes effect at the next wait (within a fraction of a second).
+  class StopNow extends Error {}
+  let interruptible = false;
+  const sleep = ms => new Promise((resolve, reject) => setTimeout(
+    () => (interruptible && stopRequested ? reject(new StopNow('stopped')) : resolve()), ms));
   const txt = el => (el?.innerText || el?.getAttribute?.('aria-label') || '').trim().replace(/\s+/g, ' ');
   const NEVER = /return|renew|suspend|cancel|delete|remove|passkey|sign out|log out|forget|unlink/i;
   // When returning loans, only buttons that say Return (early) may be clicked to change a loan.
@@ -164,15 +168,25 @@
   // Opens the loan's Manage Loan sheet. Returns null on success, or why not.
   async function openManageLoan(loan) {
     if (!onShelf() && !(await backToShelf())) return 'could not get back to the shelf first';
-    const card = readShelf().find(l => l.id === loan.id)?.card;
-    if (!card) return 'its card is not on the shelf';
-    card.scrollIntoView({ block: 'center' });
-    await sleep(400);
-    // Libby swaps shelf elements as it scrolls, so look the card up again after scrolling.
-    const fresh = readShelf().find(l => l.id === loan.id)?.card || card;
-    const manage = deepestOf([...fresh.querySelectorAll('button, a, [role=button]')]
-      .filter(e => /^manage loan$/i.test(txt(e))))[0];
-    if (!manage) return 'its card has no Manage Loan button';
+    // Every Manage Loan button for this loan: /shelf/loans shows its own list while Libby keeps
+    // the /shelf cards hidden behind it, so a loan can be in the page twice. Use the one on screen.
+    const buttons = () => [...document.querySelectorAll(`a[href$="/shelf/loans/${CSS.escape(loan.id)}/return"]`)]
+      .map(a => {
+        let card = a;
+        while (card.parentElement && !card.querySelector('.title-tile-actions')) card = card.parentElement;
+        return deepestOf([...card.querySelectorAll('button, a, [role=button]')].filter(e => /^manage loan$/i.test(txt(e))))[0];
+      })
+      .filter(b => b && (b.checkVisibility?.({ visibilityProperty: true, opacityProperty: true }) ?? b.getClientRects().length > 0));
+    if (!buttons().length) return 'its card is not on the shelf';
+    let manage = buttons().find(onTop);
+    for (const b of manage ? [] : buttons()) {
+      b.scrollIntoView({ block: 'center' });
+      await sleep(400);
+      // Libby swaps shelf elements as it scrolls, so look the buttons up again after scrolling.
+      manage = buttons().find(onTop);
+      if (manage) break;
+    }
+    if (!manage) return "its Manage Loan button isn't on screen";
     manage.click();
     if (!(await waitTop(/^(return early|renew loan)$/i, 4000))) return 'its Manage Loan sheet did not open';
     if (!sheetIsFor(loan)) return 'the sheet that opened was for a different book';
@@ -221,6 +235,7 @@
         .sort((a, b) => b.matches('.circ-confirm-button') - a.matches('.circ-confirm-button'))[0];
       if (confirm) {
         confirmed = pressReturn(confirm);
+        interruptible = false;  // the return is under way: see it through
         clicks++;
         lastClick = Date.now();
         log(`  confirming: ${confirmed}`);
@@ -317,7 +332,7 @@
     if (!running) return;
     stopRequested = true;
     log('stop requested');
-    render('Stopping after this book…');
+    render('Stopping…');
   }
 
   function togglePause() {
@@ -670,7 +685,7 @@
       log(`${loan.title} [${loan.id}]: ${result}`);
       results.push({ title: loan.title, result, ok });
       if (ok) downloaded++;
-      render(stopRequested ? `Stopping after this book… ${count()}`
+      render(stopRequested ? `Stopping… ${count()}`
         : paused ? `Pausing after this book… ${count()}` : `Working… ${count()}`);
     };
     render('Starting…');
@@ -768,8 +783,7 @@
         }
         if (downloaded >= max) break;
         if (/audiobook/i.test(loan.main)) { note(loan, 'audiobook, skipped'); continue; }
-        // The browser's download history (finished downloads only) says what is already done, so a
-        // download that failed is simply tried again next time.
+        // Only finished downloads count, so one that failed is simply tried again next time.
         if (skipDownloaded && (await ask({ type: 'downloaded', overdriveId: loan.titleId }))) {
           note(loan, 'already downloaded');
           continue;
@@ -785,6 +799,7 @@
         await takeBreakIfDue();
         if (stopRequested) { ending = 'Stopped.'; break; }
         try {
+          interruptible = true;
           await api.storage.local.set({ inFlight: { title: loan.title, id: loan.id, at: Date.now() } });
           const problem = await openHowToOpen(loan);
           if (onAccountScreen()) {
@@ -859,9 +874,15 @@
           await countDownload();
           await checkRateLimit();
         } catch (err) {
+          if (err instanceof StopNow) {
+            log(`${loan.title}: stopped part-way`);
+            ending = 'Stopped.';
+            break;
+          }
           fail(`${loan.title}:`, err);
           note(loan, 'error: ' + err.message);
         } finally {
+          interruptible = false;
           await api.storage.local.remove('inFlight');
           if (!onAccountScreen() && !(await backToShelf())) lost = true;
         }
@@ -902,7 +923,7 @@
       log(`${loan.title} [${loan.id}]: ${result}`);
       results.push({ title: loan.title, result, ok });
       if (ok) returned++;
-      render(stopRequested ? `Stopping after this book… ${count()}`
+      render(stopRequested ? `Stopping… ${count()}`
         : paused ? `Pausing after this book… ${count()}` : `Returning… ${count()}`);
     };
     render('Looking at your loans…');
@@ -916,7 +937,7 @@
       const loans = readShelf();
       const notDownloaded = [];
       for (const loan of loans) {
-        if (!(await ask({ type: 'downloaded', overdriveId: loan.titleId, ever: true }))) notDownloaded.push(loan);
+        if (!(await ask({ type: 'downloaded', overdriveId: loan.titleId }))) notDownloaded.push(loan);
       }
       log(`return: ${loans.length} loans, ${notDownloaded.length} not downloaded in this browser`);
       // Every loan, ticked or not, so nothing goes back by surprise.
@@ -949,6 +970,7 @@
           continue;
         }
         try {
+          interruptible = true;
           const problem = await returnLoan(loan);
           if (problem) {
             failedInARow++;
@@ -958,10 +980,16 @@
             note(loan, 'returned', true);
           }
         } catch (err) {
+          if (err instanceof StopNow) {
+            log(`${loan.title}: stopped before it was returned`);
+            ending = 'Stopped.';
+            break;
+          }
           failedInARow++;
           fail(`${loan.title}:`, err);
           note(loan, 'error: ' + err.message);
         } finally {
+          interruptible = false;
           if (!onAccountScreen() && !(await backToShelf(true))) {
             ending = "Couldn't get back to the shelf, so bookhoard stopped.";
             fail(ending, 'Screen shows:', onScreen());

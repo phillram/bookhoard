@@ -1,5 +1,7 @@
 # Pushing a tag like v0.1.1 builds and publishes a GitHub release with:
-#   bookhoard-v0.1.1-chrome.zip   for Chrome and Edge (the manifest as it is in the repo)
+#   bookhoard-v0.1.1-chrome.zip   for Chrome and Edge (the manifest as it is in the repo; its
+#                                 "key" keeps one extension id whatever folder it's loaded from.
+#                                 Remove it before any Chrome Web Store upload.)
 #   bookhoard-v0.1.1-firefox.zip  for Firefox, which wants background "scripts" instead of a
 #                                 service worker, plus its add-on id
 #   bookhoard-v0.1.1-firefox.xpi  the same, signed by Mozilla so Firefox installs it for good.
@@ -40,7 +42,8 @@ jobs:
           zip -r "bookhoard-$GITHUB_REF_NAME-chrome.zip" manifest.json src icons LICENSE
           mkdir firefox
           cp -r src icons LICENSE firefox/
-          jq '.background = { scripts: [.background.service_worker], type: .background.type }
+          jq 'del(.key)
+              | .background = { scripts: [.background.service_worker], type: .background.type }
               | .browser_specific_settings = { gecko: {
                   id: "bookhoard@phillram.github.io",
                   strict_min_version: "128.0",

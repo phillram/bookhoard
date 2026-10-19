@@ -17,9 +17,12 @@ Download the zip for your browser from the
 
 **Chrome or Edge**
 
-1. Unzip `bookhoard-…-chrome.zip`.
+1. Unzip `bookhoard-…-chrome.zip` into a folder you'll keep, like `Documents\bookhoard`.
+   Chrome runs bookhoard from that folder, so deleting it removes bookhoard.
 2. Go to `chrome://extensions` (or `edge://extensions`) and turn on **Developer mode**.
-3. Click **Load unpacked** and pick the unzipped folder.
+3. Click **Load unpacked** and pick the folder.
+
+To update, unzip the new version into the same folder and click the reload button on bookhoard.
 
 **Firefox**
 
@@ -64,6 +67,8 @@ saved, and which format to get.
   how Libby works.
 - Audiobooks are skipped, and so are books Libby only lets you read in its app or on Kindle.
 - After updating bookhoard, reload your Libby tab.
+- Books bookhoard has downloaded before are skipped, even if you've moved the files. Untick
+  **Skip books already downloaded** in the options to get them again.
 
 ## Something not working?
 
