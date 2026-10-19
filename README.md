@@ -62,7 +62,7 @@ saved, and which format to get.
 
 - Choosing EPUB or PDF locks that loan to the format until you borrow the book again. That's
   how Libby works.
-- Audiobooks are skipped.
+- Audiobooks are skipped, and so are books Libby only lets you read in its app or on Kindle.
 - After updating bookhoard, reload your Libby tab.
 
 ## Something not working?
