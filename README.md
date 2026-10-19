@@ -7,18 +7,23 @@ loan as an EPUB (or PDF), named like `Children of Time - Adrian Tchaikovsky`.
 
 ## Install
 
+Download `bookhoard-vX.Y.Z.zip` from the
+[latest release](https://github.com/phillram/bookhoard/releases/latest).
+
 **Chrome or Edge**
 
-1. Download this repo (Code → Download ZIP) and unzip it.
+1. Unzip it.
 2. Go to `chrome://extensions` (or `edge://extensions`) and turn on Developer mode.
 3. Click **Load unpacked** and pick the unzipped folder.
 
 **Firefox**
 
-1. Download this repo and unzip it.
-2. Go to `about:debugging#/runtime/this-firefox`.
-3. Click **Load Temporary Add-on** and pick `manifest.json`. You'll need to do this again
-   after restarting Firefox.
+1. Go to `about:debugging#/runtime/this-firefox`.
+2. Click **Load Temporary Add-on** and pick the zip. You'll need to do this again after
+   restarting Firefox.
+
+To update, download the new zip and replace the old folder, then click the reload button on
+bookhoard in your browser's extensions page.
 
 ## Use
 

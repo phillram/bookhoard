@@ -1,0 +1,34 @@
+# Pushing a tag like v0.1.0 builds bookhoard-v0.1.0.zip and publishes it as a GitHub release.
+# The tag must match "version" in manifest.json.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag matches manifest.json
+        run: |
+          version="v$(jq -r .version manifest.json)"
+          if [ "$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match manifest.json version $version"
+            exit 1
+          fi
+
+      - name: Build the zip
+        # manifest.json sits at the top of the zip, so Firefox can load the zip as-is and
+        # unzipping it gives a folder Chrome and Edge can load.
+        run: zip -r "bookhoard-$GITHUB_REF_NAME.zip" manifest.json src icons LICENSE
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: bookhoard-${{ github.ref_name }}.zip
+          generate_release_notes: true
