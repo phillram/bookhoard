@@ -1,7 +1,9 @@
-// Runs inside the Libby web app. Adds a Download button to Libby's footer. When clicked, it goes through the loans and, for each, opens the loan's "How to open" screen
-// (/shelf/loans/<cardId-titleId>/fulfill) and picks EPUB or PDF, which makes Libby hand the browser
-// the download. The background script names the file. It never clicks Return, Renew, Suspend or
-// Cancel.
+// Runs inside the Libby web app. Adds two buttons to Libby's footer.
+// Download goes through the loans and, for each, opens the loan's "How to open" screen and picks
+// EPUB or PDF, which makes Libby hand the browser the download. The background script names the
+// file. It never clicks Return, Renew, Suspend or Cancel.
+// Return asks first, then returns loans through each one's Manage Loan sheet. Return is the only
+// button it clicks that changes a loan.
 (() => {
   if (window.__bookhoard) return;
   window.__bookhoard = true;
@@ -10,11 +12,15 @@
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const txt = el => (el?.innerText || el?.getAttribute?.('aria-label') || '').trim().replace(/\s+/g, ' ');
   const NEVER = /return|renew|suspend|cancel|delete|remove|passkey|sign out|log out|forget|unlink/i;
+  // When returning loans, only buttons that say Return (early) may be clicked to change a loan.
+  const RETURN_BUTTON = /^return( early| now| (this )?(loan|title|book))?!?$/i;
   // Libby's sign-in, backup and passkey screens live under /interview. bookhoard never acts there.
   const onAccountScreen = () => location.pathname.startsWith('/interview');
   let host = null;    // the progress panel's container
-  let navBtn = null;  // our footer button
-  // (both are kept out of every search below, so the run never clicks its own controls)
+  let navBtn = null;  // our footer Download button
+  let retBtn = null;  // our footer Return button
+  // (all are kept out of every search below, so a run never clicks its own controls)
+  const ours = e => e === host || !!navBtn?.contains(e) || !!retBtn?.contains(e);
 
   // Is el what is actually on screen at its own centre (not hidden behind a sheet)?
   const onTop = el => {
@@ -22,13 +28,13 @@
     if (!r.width || !r.height) return false;
     // Look through bookhoard's own panel and footer button: they must not count as covering Libby.
     const hit = document.elementsFromPoint(r.left + r.width / 2, r.top + r.height / 2)
-      .find(e => e !== host && !navBtn?.contains(e));
+      .find(e => !ours(e));
     return !!hit && (hit === el || el.contains(hit) || hit.contains(el));
   };
   // Deepest on-screen Libby elements whose text matches re (long-text containers skipped cheaply).
   const topEls = re => {
     const hits = [...document.querySelectorAll('body *')]
-      .filter(e => e !== host && !navBtn?.contains(e) && e.textContent.length < 300 && re.test(txt(e)) && onTop(e));
+      .filter(e => !ours(e) && e.textContent.length < 300 && re.test(txt(e)) && onTop(e));
     return hits.filter(e => !hits.some(o => o !== e && e.contains(o)));
   };
   const waitTop = async (re, ms) => {
@@ -44,6 +50,13 @@
     const label = txt(el);
     if (onAccountScreen()) throw new Error('on a Libby account screen; not clicking ' + label);
     if (NEVER.test(label)) throw new Error('refused to click ' + label);
+    el.click();
+    return label;
+  };
+  const pressReturn = el => {
+    const label = txt(el);
+    if (onAccountScreen()) throw new Error('on a Libby account screen; not clicking ' + label);
+    if (!RETURN_BUTTON.test(label)) throw new Error('refused to click ' + label);
     el.click();
     return label;
   };
@@ -73,7 +86,7 @@
   });
   // What is on screen right now (for the log when a step fails).
   const onScreen = () => [...new Set([...document.querySelectorAll('button, a, [role=button]')]
-    .filter(e => !navBtn?.contains(e) && onTop(e)).map(txt).filter(Boolean))].slice(0, 15);
+    .filter(e => !ours(e) && onTop(e)).map(txt).filter(Boolean))].slice(0, 15);
 
   const HOW_TO_OPEN = /^(EPUB|PDF)\b|^other options|^kindle\b.*devices|^libby (on this device|open the book)/i;
   const COVER = /^[A-Za-z]+: '(.+)'\. Cover image/;
@@ -104,7 +117,8 @@
   const sheetOpen = () => topEls(/^(return early|renew loan)$/i).length > 0;
   // Libby keeps the shelf's cards in the page behind other screens, so the address is what tells
   // us the shelf is really showing: /shelf or /shelf/loans (How to open is .../fulfill).
-  const onShelf = () => /^\/shelf(\/loans)?\/?$/.test(location.pathname) && !sheetOpen() && readShelf().length > 0;
+  const onShelfPage = () => /^\/shelf(\/loans)?\/?$/.test(location.pathname) && !sheetOpen();
+  const onShelf = () => onShelfPage() && readShelf().length > 0;
 
   // Up to 15 seconds: after a full page load Libby can take a while to show the shelf.
   async function shelfReady() {
@@ -116,18 +130,19 @@
   }
 
   // Close whatever Libby has open (Done, Back, or the sheet's own dismiss button) until the shelf
-  // is showing again.
-  async function backToShelf() {
+  // is showing again. After returning the last loan the shelf is empty, which also counts.
+  async function backToShelf(emptyOk = false) {
+    const there = emptyOk ? onShelfPage : onShelf;
     for (let k = 0; k < 6; k++) {
       if (onAccountScreen()) return false;
-      if (onShelf()) return true;
+      if (there()) return true;
       // Prefer Done, then the sheet's own close buttons, then Back.
       const close = [/^done$/i, /^(dismiss dialog|close)$/i, /^back$/i].map(re => topEls(re)[0]).find(Boolean);
       if (close) press(close);
       else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
-      for (let w = 0; w < 30 && !onShelf(); w++) await sleep(100);
+      for (let w = 0; w < 30 && !there(); w++) await sleep(100);
     }
-    return onShelf();
+    return there();
   }
 
   // The open Manage Loan sheet labels its book "Book: <title>, by <author>" (shelf cards say
@@ -138,8 +153,8 @@
     return [...document.querySelectorAll('body *')].some(e => label.test(txt(e)) && onTop(e));
   }
 
-  // Manage Loan -> Read With... -> the How to open screen. Returns null on success, or why not.
-  async function openHowToOpen(loan) {
+  // Opens the loan's Manage Loan sheet. Returns null on success, or why not.
+  async function openManageLoan(loan) {
     if (!onShelf() && !(await backToShelf())) return 'could not get back to the shelf first';
     const card = readShelf().find(l => l.id === loan.id)?.card;
     if (!card) return 'its card is not on the shelf';
@@ -151,15 +166,52 @@
       .filter(e => /^manage loan$/i.test(txt(e))))[0];
     if (!manage) return 'its card has no Manage Loan button';
     manage.click();
-    const mark = await waitTop(/^(return early|renew loan)$/i, 4000);
-    if (!mark) return 'its Manage Loan sheet did not open';
+    if (!(await waitTop(/^(return early|renew loan)$/i, 4000))) return 'its Manage Loan sheet did not open';
     if (!sheetIsFor(loan)) return 'the sheet that opened was for a different book';
-    let sheet = mark;
+    return null;
+  }
+
+  // Manage Loan -> Read With... -> the How to open screen. Returns null on success, or why not.
+  async function openHowToOpen(loan) {
+    const problem = await openManageLoan(loan);
+    if (problem) return problem;
+    let sheet = topEls(/^(return early|renew loan)$/i)[0];
     while (sheet && !/read with/i.test(txt(sheet))) sheet = sheet.parentElement;
     const readWith = sheet && deepestOf([...sheet.querySelectorAll('*')].filter(e => /^read with/i.test(txt(e))))[0];
     if (!readWith) return 'its Manage Loan sheet has no Read With...';
     press(readWith);
     return (await waitTop(HOW_TO_OPEN, 5000)) ? null : 'How to open did not appear after Read With...';
+  }
+
+  // Manage Loan -> Return Early -> Libby's own confirm. Returns null once the loan's card has gone
+  // from the shelf, or why not.
+  async function returnLoan(loan) {
+    const problem = await openManageLoan(loan);
+    if (problem) return problem;
+    const early = topEls(/^return early$/i)[0];
+    if (!early) return 'its Manage Loan sheet has no Return Early';
+    pressReturn(early);
+    const gone = () => !readShelf().some(l => l.id === loan.id);
+    let confirmed = '';
+    for (const t = Date.now(); Date.now() - t < 10000; await sleep(200)) {
+      if (onAccountScreen()) return `Libby went to ${location.pathname}`;
+      if (gone()) break;
+      // Libby asks "are you sure?": click its Return button. Only once the Manage Loan sheet is
+      // covered, and never the button just clicked, so a redrawn sheet isn't taken for the question.
+      const confirm = !confirmed && !topEls(/^(renew loan|read with)/i).length &&
+        topEls(RETURN_BUTTON).find(e => e !== early && !early.contains(e) && !e.contains(early));
+      if (confirm) {
+        confirmed = pressReturn(confirm);
+        log(`  confirming: ${confirmed}`);
+      }
+    }
+    if (!gone()) {
+      log('  still on the shelf. Screen shows:', onScreen());
+      return confirmed ? 'Libby still shows it after confirming' : "Libby didn't ask to confirm, and still shows it";
+    }
+    // Check it is really gone once Libby is back on the shelf, not just hidden behind a screen.
+    await backToShelf(true);
+    return gone() ? null : 'it came back on the shelf';
   }
 
   // ---- The footer button and the progress panel --------------------------------------------
@@ -171,6 +223,9 @@
   let results = [];
   let panelOpen = false;  // stays open after a run until closed
   let resumeCancelled = false;  // × pressed during the countdown after "too many requests"
+  let mode = 'download';  // which footer button started the current run
+  let choose = null;      // while the panel is asking a question: call with the answer
+  let choices = [];       // [{ label, value }] buttons shown for that question
 
   // A download-tray icon drawn like Libby's own footer icons (64x64, same classes, so Libby's
   // light and dark themes color it the same way).
@@ -187,27 +242,39 @@
       </g>
     </svg>`;
 
-  function buildNavButton(bar) {
-    navBtn = document.createElement('button');
-    navBtn.type = 'button';
-    navBtn.className = 'app-footer-nav-bar-button-bookhoard nav-icon-selectable halo';
-    navBtn.dataset.haloStates = 'focus';
-    navBtn.setAttribute('aria-label', 'Download loans (bookhoard)');
-    navBtn.innerHTML = ICON + '<span class="app-footer-nav-label"><span role="text">Download</span></span>';
+  // The same tray with the arrow pointing up: sending the books back.
+  const RETURN_ICON = ICON.replace('M32,14 L32,38 M23.5,29.5 L32,38 L40.5,29.5', 'M32,38 L32,14 M23.5,22.5 L32,14 L40.5,22.5');
+
+  function footerButton(bar, { name, label, aria, icon, start }) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `app-footer-nav-bar-button-${name} nav-icon-selectable halo`;
+    btn.dataset.haloStates = 'focus';
+    btn.setAttribute('aria-label', aria);
+    btn.innerHTML = icon + `<span class="app-footer-nav-label"><span role="text">${label}</span></span>`;
     // Size the icon like its neighbours, whatever size Libby is using right now.
-    const sibling = bar.querySelector('button svg');
+    const sibling = bar.querySelector('button:not([class*="-bookhoard"]) svg');
     if (sibling) {
       const cs = getComputedStyle(sibling);
-      Object.assign(navBtn.querySelector('svg').style, { width: cs.width, height: cs.height });
+      Object.assign(btn.querySelector('svg').style, { width: cs.width, height: cs.height });
     }
-    navBtn.addEventListener('click', () => {
+    btn.addEventListener('click', () => {
       if (running) requestStop();
-      else run().catch(err => fail('run failed:', err));
+      else start().catch(err => fail('run failed:', err));
     });
-    bar.append(navBtn);
+    bar.append(btn);
+    return btn;
+  }
+
+  function buildNavButtons(bar) {
+    navBtn?.remove();
+    retBtn?.remove();
+    navBtn = footerButton(bar, { name: 'bookhoard', label: 'Download', aria: 'Download loans (bookhoard)', icon: ICON, start: run });
+    retBtn = footerButton(bar, { name: 'bookhoard-return', label: 'Return', aria: 'Return loans (bookhoard)', icon: RETURN_ICON, start: returnAll });
   }
 
   function requestStop() {
+    if (choose) { choose(null); return; }
     if (!running) return;
     stopRequested = true;
     log('stop requested');
@@ -245,6 +312,13 @@
         .pause, .stop, .copy { background: #2a2a2a; border: 1px solid #3a3a3a; color: #d0d0d0; border-radius: 6px;
                 font-size: 13px; padding: 4px 12px; cursor: pointer; white-space: nowrap; }
         .pause:hover, .stop:hover, .copy:hover { border-color: #2a9d8f; }
+        .choices { display: contents; }
+        .choices button { background: #2a2a2a; border: 1px solid #3a3a3a; color: #d0d0d0; border-radius: 6px;
+                font-size: 13px; padding: 4px 12px; cursor: pointer; white-space: nowrap; }
+        .choices button:hover { border-color: #2a9d8f; }
+        .choices button.danger { background: #5a2323; border-color: #7a3030; color: #f2dede; }
+        .choices button.danger:hover { border-color: #e07070; }
+        .status { white-space: pre-line; }
         .row { height: 24px; line-height: 24px; font-size: 13px; white-space: nowrap; overflow: hidden;
                text-overflow: ellipsis; }
         .row + .row { border-top: 1px solid #2a2a2a; }
@@ -256,6 +330,7 @@
         <div class="status"></div>
         <div class="list"></div>
         <div class="bar">
+          <span class="choices"></span>
           <button class="pause">Pause</button><button class="stop">Stop</button><button class="copy">Copy log</button>
           <button class="close" title="Close">&times;</button>
         </div>
@@ -263,7 +338,8 @@
     document.body.append(host);
     ui = { panel: root.querySelector('.panel'), status: root.querySelector('.status'), root,
            copy: root.querySelector('.copy'), stop: root.querySelector('.stop'), pause: root.querySelector('.pause'),
-           list: root.querySelector('.list'), close: root.querySelector('.close') };
+           list: root.querySelector('.list'), close: root.querySelector('.close'),
+           choices: root.querySelector('.choices') };
     ui.close.addEventListener('click', () => { resumeCancelled = true; panelOpen = false; results = []; render(''); });
     ui.copy.addEventListener('click', () => copyReport().catch(err => fail('copy log failed:', err)));
     ui.stop.addEventListener('click', requestStop);
@@ -276,9 +352,16 @@
     if (status) ui.status.textContent = status;
     ui.close.hidden = running;
     ui.copy.hidden = running;
-    ui.stop.hidden = !running;
+    ui.stop.hidden = !running || !!choose;
     ui.stop.disabled = stopRequested;
-    ui.pause.hidden = !running || stopRequested;
+    ui.pause.hidden = !running || stopRequested || !!choose;
+    ui.choices.replaceChildren(...(choose ? choices : []).map(c => {
+      const b = document.createElement('button');
+      b.textContent = c.label;
+      if (c.danger) b.className = 'danger';
+      b.addEventListener('click', () => choose?.(c.value));
+      return b;
+    }));
     ui.pause.textContent = paused ? 'Resume' : 'Pause';
     const SHOWN = 5;
     const rows = results.slice(-SHOWN).reverse().map(r => {
@@ -295,25 +378,42 @@
     });
     ui.list.replaceChildren(...rows);
     ui.list.title = results.length > SHOWN ? `${results.length - SHOWN} earlier book(s) are in Copy log` : '';
-    const label = navBtn?.querySelector('.app-footer-nav-label [role=text]');
-    if (label) label.textContent = running ? 'Stop' : 'Download';
+    // The button that started the run says Stop; the other one is dimmed until it ends.
+    for (const [btn, name, label] of [[navBtn, 'download', 'Download'], [retBtn, 'return', 'Return']]) {
+      if (!btn) continue;
+      const mine = running && mode === name;
+      btn.querySelector('.app-footer-nav-label [role=text]').textContent = mine ? (choose ? 'Cancel' : 'Stop') : label;
+      btn.style.opacity = running && !mine ? '0.4' : '';
+    }
+  }
+
+  // Ask a question in the panel and wait for one of the buttons (or Cancel/Stop, which give null).
+  function askChoice(status, options) {
+    return new Promise(resolve => {
+      choices = [...options, { label: 'Cancel', value: null }];
+      choose = value => { choose = null; choices = []; resolve(value); };
+      render(status);
+    });
   }
 
   // Libby centres its five footer buttons around the Menu orb, so ours must not take up space in
-  // the row: it sits one step to the right of the last button instead.
-  function placeNavButton(bar) {
-    const own = [...bar.children].filter(c => c !== navBtn);
+  // the row: they sit one and two steps to the right of the last button instead.
+  function placeNavButtons(bar) {
+    const own = [...bar.children].filter(c => c !== navBtn && c !== retBtn);
     if (own.length < 2) return;
     if (getComputedStyle(bar).position === 'static') bar.style.position = 'relative';
     const last = own[own.length - 1];
     const step = last.offsetLeft - own[own.length - 2].offsetLeft;
-    // On a narrow screen there is no room to the right, so sit just above the last button.
-    const fits = bar.getBoundingClientRect().left + last.offsetLeft + step + last.offsetWidth <= innerWidth - 4;
-    Object.assign(navBtn.style, {
-      position: 'absolute',
-      left: (fits ? last.offsetLeft + step : last.offsetLeft) + 'px',
-      top: (fits ? last.offsetTop : last.offsetTop - last.offsetHeight - 8) + 'px',
-      width: last.offsetWidth + 'px', height: last.offsetHeight + 'px',
+    // On a narrow screen there is no room to the right, so sit just above the last two buttons.
+    const fits = bar.getBoundingClientRect().left + last.offsetLeft + 2 * step + last.offsetWidth <= innerWidth - 4;
+    [navBtn, retBtn].forEach((btn, k) => {
+      const below = own[own.length - 1 - k];
+      Object.assign(btn.style, {
+        position: 'absolute',
+        left: (fits ? last.offsetLeft + (k + 1) * step : below.offsetLeft) + 'px',
+        top: (fits ? last.offsetTop : below.offsetTop - below.offsetHeight - 8) + 'px',
+        width: last.offsetWidth + 'px', height: last.offsetHeight + 'px',
+      });
     });
   }
 
@@ -359,11 +459,11 @@
   function syncUi() {
     if (!document.body) return;
     const bar = document.querySelector('.app-footer-nav-bar-controls');
-    if (bar && !(navBtn && bar.contains(navBtn))) {
-      buildNavButton(bar);
+    if (bar && !(navBtn && bar.contains(navBtn) && retBtn && bar.contains(retBtn))) {
+      buildNavButtons(bar);
       render('');
     }
-    if (navBtn && bar) placeNavButton(bar);
+    if (navBtn && bar) placeNavButtons(bar);
     if (!host) buildPanel();
     if (!host.isConnected) document.body.append(host);
   }
@@ -410,6 +510,7 @@
 
   async function run() {
     running = true;
+    mode = 'download';
     panelOpen = true;
     stopRequested = false;
     paused = false;
@@ -617,6 +718,108 @@
     } finally {
       await api.storage.local.remove('inFlight');
       log('run finished:', ending, count());
+      running = false;
+      render(results.length ? `${ending} ${count()}.` : ending);
+      syncUi();
+    }
+  }
+
+  // ---- The return run -------------------------------------------------------------------------
+
+  // Returns loans to the library, after asking. Books not downloaded yet are pointed out first, and
+  // can be kept. A loan only counts as returned once its card has gone from the shelf.
+  async function returnAll() {
+    running = true;
+    mode = 'return';
+    panelOpen = true;
+    stopRequested = false;
+    paused = false;
+    results = [];
+    let returned = 0;
+    const count = () => `${returned} returned, ${results.length - returned} not returned`;
+    const note = (loan, result, ok = false) => {
+      log(`${loan.title} [${loan.id}]: ${result}`);
+      results.push({ title: loan.title, result, ok });
+      if (ok) returned++;
+      render(stopRequested ? `Stopping after this book… ${count()}`
+        : paused ? `Pausing after this book… ${count()}` : `Returning… ${count()}`);
+    };
+    render('Looking at your loans…');
+    let ending = 'Done.';
+    try {
+      if (!onShelf() && /^\/shelf\//.test(location.pathname)) await backToShelf();
+      if (!(await shelfReady())) {
+        ending = 'No loans showing. Open your Libby shelf, then try again.';
+        return;
+      }
+      const loans = readShelf();
+      const notDownloaded = [];
+      for (const loan of loans) {
+        if (!(await ask({ type: 'downloaded', overdriveId: loan.titleId }))) notDownloaded.push(loan);
+      }
+      log(`return: ${loans.length} loans, ${notDownloaded.length} not downloaded in this browser`);
+      // Show the books that haven't been downloaded, so nothing goes back by surprise.
+      results = notDownloaded.map(l => ({ title: l.title, result: 'not downloaded' }));
+      const n = loans.length;
+      const books = k => `${k} ${k === 1 ? 'book' : 'books'}`;
+      const options = [{ label: `Return all ${n}`, value: 'all', danger: true }];
+      let question = `Return all ${books(n)} to the library? This can't be undone. ` +
+        "You'd have to borrow them again.";
+      if (notDownloaded.length) {
+        question += `\n${notDownloaded.length} of them ${notDownloaded.length === 1 ? "isn't" : "aren't"} ` +
+          'downloaded in this browser (listed below).';
+        if (notDownloaded.length < n) options.push({ label: `Only the ${n - notDownloaded.length} downloaded`, value: 'downloaded' });
+      }
+      const answer = await askChoice(question, options);
+      results = [];
+      if (!answer) { ending = 'Cancelled. Nothing was returned.'; return; }
+      const keep = new Set(answer === 'downloaded' ? notDownloaded.map(l => l.id) : []);
+      const todo = loans.filter(l => !keep.has(l.id));
+      log(`returning ${todo.length} loans (${answer})`);
+      render(`Returning… ${count()}`);
+
+      let failedInARow = 0;
+      for (const loan of todo) {
+        if (paused && !stopRequested) {
+          render(`Paused. ${count()}. Press Resume to carry on.`);
+          while (paused && !stopRequested) await sleep(200);
+          if (!stopRequested) render(`Returning… ${count()}`);
+        }
+        if (stopRequested) { ending = 'Stopped.'; break; }
+        if (onAccountScreen()) { ending = ACCOUNT_SCREEN_STOP; fail(ending, location.pathname); break; }
+        // Something about Libby's screens isn't as expected: stop rather than keep trying.
+        if (failedInARow >= 2) {
+          ending = "Couldn't return two books in a row, so bookhoard stopped. Copy log has the details.";
+          break;
+        }
+        try {
+          const problem = await returnLoan(loan);
+          if (problem) {
+            failedInARow++;
+            note(loan, `not returned: ${problem}`);
+          } else {
+            failedInARow = 0;
+            note(loan, 'returned', true);
+          }
+        } catch (err) {
+          failedInARow++;
+          fail(`${loan.title}:`, err);
+          note(loan, 'error: ' + err.message);
+        } finally {
+          if (!onAccountScreen() && !(await backToShelf(true))) {
+            ending = "Couldn't get back to the shelf, so bookhoard stopped.";
+            fail(ending, 'Screen shows:', onScreen());
+            break;
+          }
+        }
+        await sleep(1000);  // a moment between books, as a person would take
+      }
+    } catch (err) {
+      fail('return run failed:', err);
+      ending = 'Something went wrong: ' + err.message;
+    } finally {
+      if (choose) choose(null);
+      log('return run finished:', ending, count());
       running = false;
       render(results.length ? `${ending} ${count()}.` : ending);
       syncUi();

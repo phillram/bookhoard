@@ -3,7 +3,8 @@
 Download all your Libby loans at once.
 
 bookhoard adds a **Download** button to Libby's footer, next to Tags. Click it and it saves every
-loan as an EPUB (or PDF), named like `Children of Time - Adrian Tchaikovsky`.
+loan as an EPUB (or PDF), named like `Children of Time - Adrian Tchaikovsky`. When you're done,
+the **Return** button next to it sends all your loans back.
 
 ## Install
 
@@ -31,6 +32,10 @@ bookhoard in your browser's extensions page.
 2. Click **Download** in the footer. Click it again (it says **Stop**) to stop.
 
 If your browser asks about downloading multiple files, say yes.
+
+To return your loans, click **Return**. bookhoard asks first, and lists any books you haven't
+downloaded yet so you can keep those. Returning can't be undone; you'd have to borrow the book
+again.
 
 ## Good to know
 
