@@ -141,34 +141,36 @@
     return false;
   }
 
-  // Close whatever Libby has open (Done, Back, or the sheet's own dismiss button) until the shelf
-  // is showing again. After returning the last loan the shelf is empty, which also counts.
-  // Libby's own Shelf button in the footer: the way to the shelf from pages that aren't on top of it
-  // (the library's home page, search, tags). Changing the address instead would reload Libby.
+  const shelfPath = () => /^\/shelf(\/loans)?\/?$/.test(location.pathname);
+
+  // Libby's own Shelf button in the footer. It reaches the shelf from any page that shows the
+  // footer. (Changing the address instead would reload Libby.)
   async function shelfFromFooter() {
     const button = document.querySelector('.app-footer-nav-bar-button-shelf') ||
       [...document.querySelectorAll('.app-footer-nav-bar-controls button')].find(b => !ours(b) && /^shelf$/i.test(txt(b)));
     if (!button) return false;
     button.click();
-    for (let w = 0; w < 50 && !/^\/shelf(\/|$)/.test(location.pathname); w++) await sleep(100);
-    return true;
+    for (let w = 0; w < 50 && !shelfPath(); w++) await sleep(100);
+    return shelfPath();
   }
 
-  async function backToShelf(emptyOk = false) {
+  // Get the shelf showing. Anywhere else, the footer's Shelf button. On the shelf with a sheet open
+  // (which the Shelf button doesn't close), or if the button didn't work: Done, the sheet's Close,
+  // Back, Escape. After returning the last loan the shelf is empty, which also counts.
+  // Libby's /interview screens (sign-in, backup, passkeys, and its menu) are only ever left by the
+  // footer, and only when a run starts there (fromAnywhere). Mid-run, landing on one stops the run.
+  async function backToShelf({ emptyOk = false, fromAnywhere = false } = {}) {
     const there = emptyOk ? onShelfPage : onShelf;
     for (let k = 0; k < 6; k++) {
-      if (onAccountScreen()) return false;
       if (there()) return true;
-      // Anywhere but the shelf (with a sheet open, say) or a loan's own screens
-      // (/shelf/loans/<id>/...), which close with Done, Close or Back: the library's pages, search,
-      // holds, tags, the menu. Use the footer's Shelf button.
-      if (!/^\/shelf(\/loans)?\/?$/.test(location.pathname) && !/^\/shelf\/loans\/[^/]+\//.test(location.pathname)) {
-        if (await shelfFromFooter()) {
-          for (let w = 0; w < 30 && !there(); w++) await sleep(100);
-          continue;
-        }
+      if (onAccountScreen()) {
+        if (!fromAnywhere || !(await shelfFromFooter())) return false;
+        continue;
       }
-      // Prefer Done, then the sheet's own close buttons, then Back.
+      if (!shelfPath() && (await shelfFromFooter())) {
+        for (let w = 0; w < 30 && !there(); w++) await sleep(100);
+        continue;
+      }
       const close = [/^done$/i, /^(dismiss dialog|close)$/i, /^back$/i].map(re => topEls(re)[0]).find(Boolean);
       if (close) press(close);
       else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
@@ -269,7 +271,7 @@
     log('  after confirming, screen shows:', onScreen());
     const toShelf = topEls(/^go to shelf$/i)[0];
     if (toShelf) press(toShelf);
-    await backToShelf(true);
+    await backToShelf({ emptyOk: true });
     for (const t = Date.now(); Date.now() - t < 5000 && !gone(); ) await sleep(200);
     if (gone()) return null;
     log('  still on the shelf. Screen shows:', onScreen());
@@ -715,14 +717,13 @@
     render('Starting…');
     let ending = 'Done.';
     try {
-      // Started on one of Libby's /interview pages (its menu lives there, beside sign-in and backup):
-      // leave by the footer's Shelf button, touching nothing on the page itself.
-      if (onAccountScreen()) await shelfFromFooter();
-      if (onAccountScreen()) {
-        ending = "Couldn't leave this Libby screen. Open your shelf, then try again.";
+      // From whatever Libby page the run was started on. (Libby keeps the loan cards in the page on
+      // its other pages too, so finding cards doesn't mean the shelf is showing.)
+      if (!onShelfPage() && !(await backToShelf({ emptyOk: true, fromAnywhere: true }))) {
+        ending = "Couldn't get to your shelf from this page. Open it, then try again.";
+        fail(ending, location.pathname, 'Screen shows:', onScreen());
         return;
       }
-      if (!onShelfPage()) await backToShelf(true);
       if (!(await shelfReady())) {
         ending = 'No loans showing. Open your Libby shelf, then try again.';
         fail('no loans found on', location.pathname, '- screen shows:', onScreen());
@@ -990,14 +991,13 @@
     render('Looking at your loans…');
     let ending = 'Done.';
     try {
-      // Started on one of Libby's /interview pages (its menu lives there, beside sign-in and backup):
-      // leave by the footer's Shelf button, touching nothing on the page itself.
-      if (onAccountScreen()) await shelfFromFooter();
-      if (onAccountScreen()) {
-        ending = "Couldn't leave this Libby screen. Open your shelf, then try again.";
+      // From whatever Libby page the run was started on. (Libby keeps the loan cards in the page on
+      // its other pages too, so finding cards doesn't mean the shelf is showing.)
+      if (!onShelfPage() && !(await backToShelf({ emptyOk: true, fromAnywhere: true }))) {
+        ending = "Couldn't get to your shelf from this page. Open it, then try again.";
+        fail(ending, location.pathname, 'Screen shows:', onScreen());
         return;
       }
-      if (!onShelfPage()) await backToShelf(true);
       if (!(await shelfReady())) {
         ending = 'No loans showing. Open your Libby shelf, then try again.';
         return;
@@ -1064,7 +1064,7 @@
           note(loan, 'error: ' + err.message);
         } finally {
           interruptible = false;
-          if (!onAccountScreen() && !(await backToShelf(true))) {
+          if (!onAccountScreen() && !(await backToShelf({ emptyOk: true }))) {
             ending = "Couldn't get back to the shelf, so bookhoard stopped.";
             fail(ending, 'Screen shows:', onScreen());
             break;
