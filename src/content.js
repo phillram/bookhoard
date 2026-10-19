@@ -592,8 +592,16 @@
         fail('download server said "too many requests"; waiting a minute');
         await pauseFor(60000, 'OverDrive said "too many requests". Waiting a minute');
         await setPace({ count: 0, lastAt: Date.now() });
+        if (!stopRequested) await retryRenames();
         return true;
       };
+      // Firefox: fetch again any renamed copies that OverDrive refused, now that we've paused.
+      const retryRenames = async () => {
+        const n = await ask({ type: 'retryRenames' });
+        if (n) log(`  fetching ${n} renamed ${n === 1 ? 'copy' : 'copies'} again`);
+      };
+      // One left over from an earlier run (the pause has long passed): fetch it now.
+      await retryRenames();
       // Before each book: take the break if one is due. Time since the last download already counts,
       // and a gap at least as long as the break resets the count.
       const takeBreakIfDue = async () => {
@@ -731,6 +739,13 @@
           await api.storage.local.remove('inFlight');
           if (!onAccountScreen() && !(await backToShelf())) lost = true;
         }
+      }
+      // A renamed copy (Firefox) may have been refused just after the last book. Wait out the pause
+      // and fetch it again, unless Stop was pressed (then the next run does it).
+      if (perBook > 1) await sleep(3000);
+      if (perBook > 1 && !stopRequested && !(await checkRateLimit()) && (await ask({ type: 'renamesWaiting' }))) {
+        await pauseFor(60000, 'OverDrive refused a renamed copy. Waiting a minute to fetch it again');
+        if (!stopRequested) await retryRenames();
       }
     } catch (err) {
       fail('run failed:', err);

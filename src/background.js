@@ -146,6 +146,9 @@ api.webRequest?.onHeadersReceived.addListener(async details => {
   }
 }, { urls: ['https://*.contentreserve.com/*'] });
 
+// Firefox only: fetch renamed copies that failed (set below). Chrome renames in place, so has none.
+let retryRenames = async () => 0;
+
 if (api.downloads.onDeterminingFilename) {
   // Chrome and Edge: suggest the name as the download starts.
   api.downloads.onDeterminingFilename.addListener((item, suggest) => {
@@ -166,6 +169,7 @@ if (api.downloads.onDeterminingFilename) {
   // is kept under its own name rather than losing the book.
   const ours = new Set();       // addresses we are fetching ourselves
   const replacing = new Map();  // our download id -> Libby's download id
+  const fetches = new Map();    // our download id -> what to fetch again if it fails
 
   const removeLibbysCopy = async original => {
     try {
@@ -185,9 +189,43 @@ if (api.downloads.onDeterminingFilename) {
       await removeLibbysCopy(original);
     } else if (state === 'interrupted') {
       replacing.delete(oursId);
-      fail("renamed copy failed, so Libby's copy was kept under its own name:", error);
-      remember({ from: '(renamed copy)', to: "(failed; Libby's copy kept)", error: String(error) });
+      const again = fetches.get(oursId);
+      // Usually OverDrive saying "too many requests". Try once more after the page's pause (saved,
+      // because Firefox may unload this script while it waits).
+      if (again && !again.retried && error !== 'USER_CANCELED') {
+        const { renameRetries = [] } = await sessionStore.get('renameRetries');
+        renameRetries.push({ ...again, original });
+        await sessionStore.set({ renameRetries });
+        fail(`renamed copy of ${again.filename} failed (${error}); will try again after the pause`);
+        remember({ from: '(renamed copy)', to: '(failed; trying again after the pause)', error: String(error) });
+      } else {
+        fail("renamed copy failed, so Libby's copy was kept under its own name:", error);
+        remember({ from: '(renamed copy)', to: "(failed; Libby's copy kept)", error: String(error) });
+      }
     }
+  };
+
+  // Fetch the renamed copies that failed again, once each. Libby's copy is still only removed once
+  // ours has finished.
+  retryRenames = async () => {
+    const { renameRetries = [] } = await sessionStore.get('renameRetries');
+    if (!renameRetries.length) return 0;
+    await sessionStore.set({ renameRetries: [] });
+    for (const r of renameRetries) {
+      try {
+        ours.add(r.url);
+        const id = await api.downloads.download({ url: r.url, filename: r.filename, conflictAction: r.conflictAction });
+        known.set(id, r.book);
+        replacing.set(id, r.original);
+        fetches.set(id, { ...r, retried: true });
+        log('fetching the renamed copy again:', r.filename);
+        const [now] = await api.downloads.search({ id });
+        if (now && now.state !== 'in_progress') await settle(id, now.state, now.error);
+      } catch (err) {
+        fail(`could not fetch ${r.filename} again; Libby's copy was kept under its own name:`, err);
+      }
+    }
+    return renameRetries.length;
   };
 
   api.downloads.onCreated.addListener(async item => {
@@ -203,6 +241,7 @@ if (api.downloads.onDeterminingFilename) {
       const id = await api.downloads.download({ url, filename: t.filename, conflictAction: t.conflictAction });
       known.set(id, book);
       replacing.set(id, item.id);
+      fetches.set(id, { url, filename: t.filename, conflictAction: t.conflictAction, book });
       // A tiny .acsm can finish before we start listening for it.
       const [now] = await api.downloads.search({ id });
       if (now && now.state !== 'in_progress') await settle(id, now.state, now.error);
@@ -266,6 +305,13 @@ api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'requestsPerBook': {
         // Firefox fetches each book twice (once by Libby, once under the right name).
         return api.downloads.onDeterminingFilename ? 1 : 2;
+      }
+      case 'retryRenames': {
+        return retryRenames();
+      }
+      case 'renamesWaiting': {
+        const { renameRetries = [] } = await sessionStore.get('renameRetries');
+        return renameRetries.length;
       }
       case 'names': {
         const { names = [] } = await sessionStore.get('names');
