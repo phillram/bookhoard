@@ -67,10 +67,18 @@
   // Everything is also kept for the panel's Copy log button.
   let debug = false;
   const trace = [];
+  let saveTimer = 0;
   const keep = line => {
     trace.push(new Date().toISOString().slice(11, 19) + ' ' + line);
     if (trace.length > 3000) trace.shift();
+    // Saved as it goes (at most once a second): Libby reloads the page after "too many requests",
+    // and the log from before that is what explains it.
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      api.storage.local.set({ lastLog: { at: Date.now(), results, trace: trace.slice(-1000) } }).catch(() => {});
+    }, 1000);
   };
+  let earlier = null;  // the log from before Libby reloaded the page mid-run, for Copy log
   const show = v => (v instanceof Error ? v.stack || v.message : typeof v === 'string' ? v : JSON.stringify(v));
   const log = (...args) => {
     keep(args.map(show).join(' '));
@@ -553,6 +561,12 @@
       '',
       'Trace:',
       ...trace,
+      ...(earlier ? [
+        '',
+        `Before Libby reloaded the page (${new Date(earlier.at).toISOString().slice(11, 19)}):`,
+        ...earlier.results.map(r => `  ${r.ok ? 'OK  ' : 'SKIP'} ${r.title}: ${r.result}`),
+        ...earlier.trace,
+      ] : []),
     ].join('\n');
   }
 
@@ -612,6 +626,7 @@
     if (!inFlight) return;
     await api.storage.local.remove('inFlight');
     if (Date.now() - inFlight.at > 2 * 60 * 1000) return;
+    ({ lastLog: earlier = null } = await api.storage.local.get('lastLog'));
     const limited = await ask({ type: 'rateLimited', since: inFlight.at - 5000 });
     let message;
     if (limited) {
