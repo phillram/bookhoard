@@ -222,12 +222,14 @@
   function buildPanel() {
     host = document.createElement('div');
     // The host lets clicks through, so it never hides Libby's own buttons from the search above.
-    host.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);z-index:2147483647;pointer-events:none;';
+    // Pinned in the bottom-right corner, clear of Libby's footer and of its book screens (which sit
+    // on the left). It never moves, so it is easy to reach.
+    host.style.cssText = 'position:fixed;right:20px;bottom:110px;z-index:2147483647;pointer-events:none;';
     const root = host.attachShadow({ mode: 'open' });
     root.innerHTML = `
       <style>
         * { box-sizing: border-box; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
-        .panel { pointer-events: auto; width: min(420px, 92vw); max-height: 45vh; overflow-y: auto;
+        .panel { pointer-events: auto; width: min(380px, 90vw);
                  background: #1c1c1c; color: #e0e0e0; border: 1px solid #333; border-radius: 10px;
                  padding: 10px 12px; box-shadow: 0 4px 18px rgba(0,0,0,.5); }
         .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 6px; }
@@ -238,6 +240,7 @@
                 font-size: 12px; padding: 2px 8px; cursor: pointer; white-space: nowrap; }
         .row { padding: 3px 0; border-top: 1px solid #333; font-size: 13px; }
         .ok { color: #8fcf9f; }
+        .more { color: #8a8a8a; font-size: 12px; padding-top: 4px; }
         .skip { color: #8a8a8a; }
       </style>
       <div class="panel" hidden>
@@ -265,7 +268,8 @@
     ui.stop.disabled = stopRequested;
     ui.pause.hidden = !running || stopRequested;
     ui.pause.textContent = paused ? 'Resume' : 'Pause';
-    ui.list.replaceChildren(...results.slice().reverse().map(r => {
+    const SHOWN = 5;
+    const rows = results.slice(-SHOWN).reverse().map(r => {
       const row = document.createElement('div');
       row.className = 'row';
       const name = document.createElement('strong');
@@ -275,7 +279,14 @@
       what.textContent = ' ' + r.result;
       row.append(name, what);
       return row;
-    }));
+    });
+    if (results.length > SHOWN) {
+      const more = document.createElement('div');
+      more.className = 'more';
+      more.textContent = `${results.length - SHOWN} earlier book(s) in Copy log`;
+      rows.push(more);
+    }
+    ui.list.replaceChildren(...rows);
     const label = navBtn?.querySelector('.app-footer-nav-label [role=text]');
     if (label) label.textContent = running ? 'Stop' : 'Download';
   }
@@ -347,10 +358,6 @@
     if (navBtn && bar) placeNavButton(bar);
     if (!host) buildPanel();
     if (!host.isConnected) document.body.append(host);
-    // Sit just above the footer's icons (and above our button when it is raised on narrow screens).
-    const tops = [bar, navBtn].filter(Boolean).map(e => e.getBoundingClientRect().top).filter(t => t > 0);
-    const top = tops.length ? Math.min(...tops) : innerHeight;
-    host.style.bottom = Math.max(12, innerHeight - top + 10) + 'px';
   }
 
   // ---- The download run -----------------------------------------------------------------------
@@ -427,7 +434,7 @@
           break;
         }
         if (downloaded >= max) break;
-        if (doneIds.has(loan.id)) continue;
+        if (doneIds.has(loan.id)) { log(`${loan.title} [${loan.id}]: done in an earlier run, skipped`); continue; }
         if (/audiobook/i.test(loan.main)) { note(loan, 'audiobook, skipped'); continue; }
         if (skipDownloaded && (await ask({ type: 'downloaded', overdriveId: loan.titleId }))) {
           await markDone(loan);
