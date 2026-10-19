@@ -55,6 +55,16 @@ Click the bookhoard icon in your toolbar.
 - **Format**: EPUB first, EPUB only, or PDF first.
 - **Download at most**: handy for trying it out on a few books first.
 
+## Something not working?
+
+1. In the options, tick **Debug**.
+2. Run it again.
+3. Click **Copy log** on the results panel and paste it into a
+   [GitHub issue](https://github.com/phillram/bookhoard/issues).
+
+The log has what happened to each book and the file names it chose. It doesn't include your
+download links.
+
 ## License
 
 MIT

@@ -9,6 +9,7 @@ export const DEFAULTS = {
   skipDownloaded: true,
   includeLocked: false,
   limit: 0,                        // most books per run; 0 = no limit
+  debug: false,                    // log every step to the console
 };
 
 // [name, description, example]

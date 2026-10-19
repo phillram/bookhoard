@@ -12,6 +12,23 @@ async function getSettings() {
   return { ...DEFAULTS, ...(settings || {}) };
 }
 
+// Logging. Errors always go to this background console; step-by-step detail only in debug mode.
+// Every naming decision is also kept (last 200) so the in-page "Copy log" report can include it.
+// Download links carry one-time tokens, so only their path is ever logged.
+let debug = false;
+getSettings().then(s => { debug = !!s.debug; });
+api.storage.onChanged.addListener(changes => {
+  if (changes.settings) debug = !!changes.settings.newValue?.debug;
+});
+const shortUrl = url => { try { return new URL(url).pathname.split('/').pop(); } catch { return '?'; } };
+const log = (...args) => { if (debug) console.log('[bookhoard]', ...args); };
+const fail = (...args) => console.error('[bookhoard]', ...args);
+async function remember(entry) {
+  const { names = [] } = await sessionStore.get('names');
+  names.push({ time: new Date().toISOString(), ...entry });
+  await sessionStore.set({ names: names.slice(-200) });
+}
+
 const mediaCache = new Map();
 function media(overdriveId) {
   if (!mediaCache.has(overdriveId)) {
@@ -35,10 +52,17 @@ async function targetFor(url) {
   if (!download) return null;
   const settings = await getSettings();
   let details = null;
-  try { details = await media(download.overdriveId); } catch { /* name from the URL alone */ }
+  try {
+    details = await media(download.overdriveId);
+  } catch (err) {
+    fail(`catalog lookup failed for ${download.overdriveId}; naming from the link only:`, err);
+  }
   const vars = variables(details, download, await expectedFormat(download.overdriveId));
-  if (!vars.title) vars.title = new URL(url).pathname.split('/').pop().split('_')[0];
-  return { filename: buildPath(settings, vars, download.ext), conflictAction: settings.conflict };
+  if (!vars.title) vars.title = shortUrl(url).split('_')[0];
+  const filename = buildPath(settings, vars, download.ext);
+  log('naming', shortUrl(url), '->', filename, vars);
+  await remember({ from: shortUrl(url), to: filename, lookedUp: !!details });
+  return { filename, conflictAction: settings.conflict };
 }
 
 function fulfillUrlOf(item) {
@@ -52,7 +76,11 @@ if (api.downloads.onDeterminingFilename) {
     if (!url) return;  // not a Libby download: leave it alone
     targetFor(url)
       .then(t => (t ? suggest({ filename: t.filename, conflictAction: t.conflictAction }) : suggest()))
-      .catch(() => suggest());
+      .catch(err => {
+        fail('could not name', shortUrl(url), '- kept the browser\'s name:', err);
+        remember({ from: shortUrl(url), to: '(browser default)', error: String(err) });
+        suggest();
+      });
     return true;  // suggest() is called asynchronously
   });
 } else {
@@ -62,14 +90,21 @@ if (api.downloads.onDeterminingFilename) {
   api.downloads.onCreated.addListener(async item => {
     const url = fulfillUrlOf(item);
     if (!url || ours.has(item.url)) return;
-    const t = await targetFor(url);
-    if (!t) return;
-    ours.add(item.url);
     try {
-      await api.downloads.cancel(item.id);
-      await api.downloads.erase({ id: item.id });
-    } catch { /* already finished or gone */ }
-    await api.downloads.download({ url: item.url, filename: t.filename, conflictAction: t.conflictAction });
+      const t = await targetFor(url);
+      if (!t) return;
+      ours.add(item.url);
+      try {
+        await api.downloads.cancel(item.id);
+        await api.downloads.erase({ id: item.id });
+      } catch (err) {
+        log('original download already finished or gone:', err);
+      }
+      await api.downloads.download({ url: item.url, filename: t.filename, conflictAction: t.conflictAction });
+    } catch (err) {
+      fail('could not re-download', shortUrl(url), 'under the new name:', err);
+      remember({ from: shortUrl(url), to: '(failed)', error: String(err) });
+    }
   });
 }
 
@@ -82,7 +117,8 @@ api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         try {
           const m = await media(msg.overdriveId);
           return { title: m.title, formats: formatIds(m) };
-        } catch {
+        } catch (err) {
+          fail(`catalog lookup failed for ${msg.overdriveId}:`, err);
           return null;
         }
       }
@@ -98,9 +134,16 @@ api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         });
         return found.some(d => d.state !== 'interrupted' && d.exists !== false);
       }
+      case 'names': {
+        const { names = [] } = await sessionStore.get('names');
+        return names;
+      }
       default:
         return undefined;
     }
-  })().then(sendResponse, () => sendResponse(undefined));
+  })().then(sendResponse, err => {
+    fail(`message "${msg?.type}" failed:`, err);
+    sendResponse(undefined);
+  });
   return true;
 });

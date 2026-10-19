@@ -48,6 +48,31 @@
   };
   const ask = msg => api.runtime.sendMessage(msg);
 
+  // Logging. Errors always go to the console; with Debug on (options page) every step does too.
+  // Everything is also kept for the panel's Copy log button.
+  let debug = false;
+  const trace = [];
+  const keep = line => {
+    trace.push(new Date().toISOString().slice(11, 19) + ' ' + line);
+    if (trace.length > 3000) trace.shift();
+  };
+  const show = v => (v instanceof Error ? v.stack || v.message : typeof v === 'string' ? v : JSON.stringify(v));
+  const log = (...args) => {
+    keep(args.map(show).join(' '));
+    if (debug) console.log('[bookhoard]', ...args);
+  };
+  const fail = (...args) => {
+    keep('ERROR ' + args.map(show).join(' '));
+    console.error('[bookhoard]', ...args);
+  };
+  api.storage.local.get('settings').then(({ settings }) => { debug = !!settings?.debug; });
+  api.storage.onChanged.addListener(changes => {
+    if (changes.settings) debug = !!changes.settings.newValue?.debug;
+  });
+  // What is on screen right now (for the log when a step fails).
+  const onScreen = () => [...new Set([...document.querySelectorAll('button, a, [role=button]')]
+    .filter(e => !navBtn?.contains(e) && onTop(e)).map(txt).filter(Boolean))].slice(0, 15);
+
   const HOW_TO_OPEN = /^(EPUB|PDF)\b|^other options|^kindle\b|^libby\b/i;
   const COVER = /^[A-Za-z]+: '(.+)'\. Cover image/;
 
@@ -135,7 +160,7 @@
     }
     navBtn.addEventListener('click', () => {
       if (running) { stopRequested = true; render('Stopping after this book…'); }
-      else run();
+      else run().catch(err => fail('run failed:', err));
     });
     bar.append(navBtn);
   }
@@ -154,18 +179,23 @@
         .top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 6px; }
         .status { color: #b8b8b8; }
         .close { background: none; border: 0; color: #b8b8b8; font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px; }
+        .copy { background: #2a2a2a; border: 1px solid #3a3a3a; color: #d0d0d0; border-radius: 6px;
+                font-size: 12px; padding: 2px 8px; margin-right: 8px; cursor: pointer; }
         .row { padding: 3px 0; border-top: 1px solid #333; font-size: 13px; }
         .ok { color: #8fcf9f; }
         .skip { color: #8a8a8a; }
       </style>
       <div class="panel" hidden>
-        <div class="top"><span class="status"></span><button class="close" title="Close">&times;</button></div>
+        <div class="top"><span class="status"></span>
+          <span><button class="copy">Copy log</button><button class="close" title="Close">&times;</button></span></div>
         <div class="list"></div>
       </div>`;
     document.body.append(host);
-    ui = { panel: root.querySelector('.panel'), status: root.querySelector('.status'),
+    ui = { panel: root.querySelector('.panel'), status: root.querySelector('.status'), root,
+           copy: root.querySelector('.copy'),
            list: root.querySelector('.list'), close: root.querySelector('.close') };
     ui.close.addEventListener('click', () => { panelOpen = false; results = []; render(''); });
+    ui.copy.addEventListener('click', () => copyReport().catch(err => fail('copy log failed:', err)));
   }
 
   function render(status) {
@@ -173,6 +203,7 @@
     ui.panel.hidden = !panelOpen;
     if (status) ui.status.textContent = status;
     ui.close.hidden = running;
+    ui.copy.hidden = running;
     ui.list.replaceChildren(...results.slice().reverse().map(r => {
       const row = document.createElement('div');
       row.className = 'row';
@@ -206,6 +237,44 @@
     });
   }
 
+  // A plain-text report of the last run for the Copy log button: results, the file names the
+  // background chose, and the step-by-step trace. No download links (they carry access tokens).
+  async function report() {
+    const names = (await ask({ type: 'names' })) || [];
+    const { settings = {} } = await api.storage.local.get('settings');
+    return [
+      `bookhoard ${api.runtime.getManifest().version} log, ${new Date().toISOString()}`,
+      navigator.userAgent,
+      `page: ${location.pathname}`,
+      `settings: ${JSON.stringify(settings)}`,
+      '',
+      'Results:',
+      ...results.map(r => `  ${r.ok ? 'OK  ' : 'SKIP'} ${r.title}: ${r.result}`),
+      '',
+      'File names:',
+      ...names.map(n => `  ${n.time.slice(11, 19)} ${n.from} -> ${n.to}${n.error ? '  ERROR ' + n.error : ''}`),
+      '',
+      'Trace:',
+      ...trace,
+    ].join('\n');
+  }
+
+  async function copyReport() {
+    const text = await report();
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const area = document.createElement('textarea');
+      area.value = text;
+      ui.root.append(area);
+      area.select();
+      document.execCommand('copy');
+      area.remove();
+    }
+    ui.copy.textContent = 'Copied';
+    setTimeout(() => { ui.copy.textContent = 'Copy log'; }, 1500);
+  }
+
   // Libby rebuilds its footer at times, so keep checking the button is still there.
   function syncUi() {
     if (!document.body) return;
@@ -236,6 +305,7 @@
       return `${downloaded} downloaded, ${skipped} skipped`;
     };
     const note = (loan, result, ok = false) => {
+      log(`${loan.title} [${loan.id}]: ${result}`);
       results.push({ title: loan.title, result, ok });
       if (ok) downloaded++;
       render(stopRequested ? `Stopping after this book… ${count()}` : `Working… ${count()}`);
@@ -243,8 +313,13 @@
     render('Starting…');
     let ending = 'Done.';
     try {
-      if (!(await shelfReady())) { ending = 'No loans found. Are you signed in?'; return; }
+      if (!(await shelfReady())) {
+        ending = 'No loans found. Are you signed in?';
+        fail('no loans found on', location.pathname, '- screen shows:', onScreen());
+        return;
+      }
       const { settings = {} } = await api.storage.local.get('settings');
+      log('run started; settings:', settings);
       const order = { 'epub-pdf': ['EPUB', 'PDF'], epub: ['EPUB'], 'pdf-epub': ['PDF', 'EPUB'] }[settings.formatOrder || 'epub-pdf'];
       const skipDownloaded = settings.skipDownloaded !== false;
       const includeLocked = !!settings.includeLocked;
@@ -257,7 +332,9 @@
       };
       const optionRe = name => new RegExp('^' + name + '\\b');
 
-      for (const loan of readShelf()) {
+      const shelf = readShelf();
+      log(`${shelf.length} loans on the shelf, ${shelf.filter(l => doneIds.has(l.id)).length} done in earlier runs`);
+      for (const loan of shelf) {
         if (stopRequested) { ending = 'Stopped.'; break; }
         if (downloaded >= max) break;
         if (doneIds.has(loan.id)) continue;
@@ -268,7 +345,9 @@
           note(loan, 'already downloaded');
           continue;
         }
+        log(`${loan.title} [${loan.id}]: card says "${loan.main}"`);
         const details = await ask({ type: 'media', overdriveId: loan.titleId });
+        log('  formats in the catalog:', details?.formats ?? '(lookup failed)');
         if (details?.formats?.length &&
             !details.formats.some(f => order.some(o => f.startsWith('ebook-' + o.toLowerCase())))) {
           note(loan, `no ${order.join(' or ')}, skipped`);
@@ -278,11 +357,17 @@
           go(`/shelf/loans/${loan.id}/fulfill`);
           let ready = await waitTop(HOW_TO_OPEN, 3000);
           if (!ready) {
+            log('  How to open did not open directly; trying Manage Loan. Screen shows:', onScreen());
             go('/shelf/loans');
             await sleep(800);
             ready = await viaMenu(loan);
           }
-          if (!ready) { note(loan, "couldn't open, skipped"); continue; }
+          if (!ready) {
+            fail(`${loan.title}: could not open How to open. Screen shows:`, onScreen());
+            note(loan, "couldn't open, skipped");
+            continue;
+          }
+          log('  How to open shows:', onScreen());
 
           if (!topEls(optionRe(order[0]))[0]) {
             const other = topEls(/^other options/i)[0];
@@ -292,8 +377,13 @@
             }
           }
           const found = order.map(o => [o, topEls(optionRe(o))[0]]).find(([, el]) => el);
-          if (!found) { note(loan, `no ${order.join(' or ')} offered, skipped`); continue; }
+          if (!found) {
+            log('  none of', order, 'offered. Screen shows:', onScreen());
+            note(loan, `no ${order.join(' or ')} offered, skipped`);
+            continue;
+          }
           const [format, button] = found;
+          log('  choosing', format);
           await ask({ type: 'expect', overdriveId: loan.titleId, format });
           press(button);
 
@@ -303,19 +393,25 @@
           for (const t = Date.now(); Date.now() - t < 10000;) {
             if (topEls(/^done$/i).length) { sawDone = true; break; }
             const c = !confirmed && topEls(/^(download|continue|confirm|ok|yes|got it)$/i)[0];
-            if (c) { press(c); confirmed = true; }
+            if (c) { log('  confirming:', txt(c)); press(c); confirmed = true; }
             await sleep(100);
           }
+          if (!sawDone) fail(`${loan.title}: chose ${format} but saw no Done screen within 10s. Screen shows:`, onScreen());
           await markDone(loan);
           note(loan, sawDone ? format : `${format}? check your downloads`, true);
         } catch (err) {
+          fail(`${loan.title}:`, err);
           note(loan, 'error: ' + err.message);
         } finally {
           go('/shelf/loans');
           await sleep(300);
         }
       }
+    } catch (err) {
+      fail('run failed:', err);
+      ending = 'Something went wrong: ' + err.message;
     } finally {
+      log('run finished:', ending, count());
       running = false;
       render(results.length ? `${ending} ${count()}.` : ending);
       syncUi();

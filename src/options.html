@@ -81,6 +81,13 @@
     Also try loans whose card says Open In Libby or Open Book</label>
   <label class="inline">Download at most <input type="number" id="limit" min="0" placeholder="all"> books per run</label>
 
+  <h2>Troubleshooting</h2>
+  <label class="inline"><input type="checkbox" id="debug">
+    Debug: log every step to the console, marked <code>[bookhoard]</code></label>
+  <p class="muted">Errors are always logged. Steps show in the Libby tab's console (F12); file
+    naming shows in the extension's background console. <strong>Copy log</strong> on the results
+    panel copies all of it, ready to paste into a bug report.</p>
+
   <p id="saved" class="ok"></p>
   <script src="options.js" type="module"></script>
 </body>
