@@ -45,10 +45,7 @@
     el.click();
     return label;
   };
-  const go = path => {
-    history.pushState({}, '', path);
-    window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
-  };
+  const deepestOf = list => list.filter(e => !list.some(o => o !== e && e.contains(o)));
   const ask = msg => api.runtime.sendMessage(msg);
 
   // Logging. Errors always go to the console; with Debug on (options page) every step does too.
@@ -76,7 +73,7 @@
   const onScreen = () => [...new Set([...document.querySelectorAll('button, a, [role=button]')]
     .filter(e => !navBtn?.contains(e) && onTop(e)).map(txt).filter(Boolean))].slice(0, 15);
 
-  const HOW_TO_OPEN = /^(EPUB|PDF)\b|^other options|^kindle\b|^libby\b/i;
+  const HOW_TO_OPEN = /^(EPUB|PDF)\b|^other options|^kindle\b.*devices|^libby on this device/i;
   const COVER = /^[A-Za-z]+: '(.+)'\. Cover image/;
 
   // Loans on the shelf: id (cardId-titleId, from the card's Return link), title, card's main button.
@@ -99,30 +96,63 @@
     return [...seen.values()];
   }
 
+  // Libby is driven only through its own buttons, as a person would. Changing the address
+  // directly makes Libby reload, and in some browsers send you to its "Back Up Your Data" screen.
+
+  const sheetOpen = () => topEls(/^(return early|renew loan)$/i).length > 0;
+  const onShelf = () => readShelf().length > 0 && !sheetOpen() && !topEls(HOW_TO_OPEN).length;
+
   async function shelfReady() {
-    if (readShelf().length) return true;
-    go('/shelf/loans');
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 30; i++) {
       if (readShelf().length) return true;
       await sleep(100);
     }
     return false;
   }
 
-  // Fallback way to the How to open screen: the card's Manage Loan button, then Read With...
-  async function viaMenu(loan) {
+  // Close whatever Libby has open (Done, Back, or the sheet's own dismiss button) until the shelf
+  // is showing again.
+  async function backToShelf() {
+    for (let k = 0; k < 6; k++) {
+      if (onAccountScreen()) return false;
+      if (onShelf()) return true;
+      const close = topEls(/^(done|back|dismiss dialog|close)$/i)[0];
+      if (close) press(close);
+      else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+      for (let w = 0; w < 30 && !onShelf(); w++) await sleep(100);
+    }
+    return onShelf();
+  }
+
+  // The open Manage Loan sheet labels its book "Book: <title>, by <author>" (shelf cards say
+  // "Book: '<title>'. Cover image."), so this tells us the sheet is for the loan we clicked.
+  function sheetIsFor(loan) {
+    const esc = loan.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const label = new RegExp(`^[A-Za-z]+: ${esc}, by `);
+    return [...document.querySelectorAll('body *')].some(e => label.test(txt(e)) && onTop(e));
+  }
+
+  // Manage Loan -> Read With... -> the How to open screen. Returns null on success, or why not.
+  async function openHowToOpen(loan) {
     const card = readShelf().find(l => l.id === loan.id)?.card;
-    if (!card) return false;
+    if (!card) return 'its card is not on the shelf';
     card.scrollIntoView({ block: 'center' });
-    await sleep(300);
-    const buttons = [...card.querySelectorAll('button, [role=button], a')].filter(e => /^manage loan$/i.test(txt(e)));
-    if (!buttons.length) return false;
-    buttons[buttons.length - 1].click();
-    if (!(await waitTop(/^(return early|renew loan)$/i, 4000))) return false;
-    const readWith = await waitTop(/^read with/i, 1500);
-    if (!readWith) return false;
+    await sleep(400);
+    // Libby swaps shelf elements as it scrolls, so look the card up again after scrolling.
+    const fresh = readShelf().find(l => l.id === loan.id)?.card || card;
+    const manage = deepestOf([...fresh.querySelectorAll('button, a, [role=button]')]
+      .filter(e => /^manage loan$/i.test(txt(e))))[0];
+    if (!manage) return 'its card has no Manage Loan button';
+    manage.click();
+    const mark = await waitTop(/^(return early|renew loan)$/i, 4000);
+    if (!mark) return 'its Manage Loan sheet did not open';
+    if (!sheetIsFor(loan)) return 'the sheet that opened was for a different book';
+    let sheet = mark;
+    while (sheet && !/read with/i.test(txt(sheet))) sheet = sheet.parentElement;
+    const readWith = sheet && deepestOf([...sheet.querySelectorAll('*')].filter(e => /^read with/i.test(txt(e))))[0];
+    if (!readWith) return 'its Manage Loan sheet has no Read With...';
     press(readWith);
-    return !!(await waitTop(HOW_TO_OPEN, 4000));
+    return (await waitTop(HOW_TO_OPEN, 5000)) ? null : 'How to open did not appear after Read With...';
   }
 
   // ---- The footer button and the progress panel --------------------------------------------
@@ -179,18 +209,19 @@
         .panel { pointer-events: auto; width: min(420px, 92vw); max-height: 45vh; overflow-y: auto;
                  background: #1c1c1c; color: #e0e0e0; border: 1px solid #333; border-radius: 10px;
                  padding: 10px 12px; box-shadow: 0 4px 18px rgba(0,0,0,.5); }
-        .top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 6px; }
-        .status { color: #b8b8b8; }
+        .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 6px; }
+        .status { color: #b8b8b8; flex: 1; min-width: 0; }
+        .actions { flex-shrink: 0; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
         .close { background: none; border: 0; color: #b8b8b8; font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px; }
         .copy { background: #2a2a2a; border: 1px solid #3a3a3a; color: #d0d0d0; border-radius: 6px;
-                font-size: 12px; padding: 2px 8px; margin-right: 8px; cursor: pointer; }
+                font-size: 12px; padding: 2px 8px; cursor: pointer; white-space: nowrap; }
         .row { padding: 3px 0; border-top: 1px solid #333; font-size: 13px; }
         .ok { color: #8fcf9f; }
         .skip { color: #8a8a8a; }
       </style>
       <div class="panel" hidden>
         <div class="top"><span class="status"></span>
-          <span><button class="copy">Copy log</button><button class="close" title="Close">&times;</button></span></div>
+          <span class="actions"><button class="copy">Copy log</button><button class="close" title="Close">&times;</button></span></div>
         <div class="list"></div>
       </div>`;
     document.body.append(host);
@@ -337,7 +368,7 @@
     let ending = 'Done.';
     try {
       if (!(await shelfReady())) {
-        ending = 'No loans found. Are you signed in?';
+        ending = 'No loans showing. Open your Libby shelf, then try again.';
         fail('no loans found on', location.pathname, '- screen shows:', onScreen());
         return;
       }
@@ -355,10 +386,16 @@
       const optionRe = name => new RegExp('^' + name + '\\b');
 
       const shelf = readShelf();
+      let lost = false;
       log(`${shelf.length} loans on the shelf, ${shelf.filter(l => doneIds.has(l.id)).length} done in earlier runs`);
       for (const loan of shelf) {
         if (stopRequested) { ending = 'Stopped.'; break; }
         if (onAccountScreen()) { ending = ACCOUNT_SCREEN_STOP; fail(ending, location.pathname); break; }
+        if (lost) {
+          ending = "Couldn't get back to the shelf, so bookhoard stopped.";
+          fail(ending, 'Screen shows:', onScreen());
+          break;
+        }
         if (downloaded >= max) break;
         if (doneIds.has(loan.id)) continue;
         if (/audiobook/i.test(loan.main)) { note(loan, 'audiobook, skipped'); continue; }
@@ -377,22 +414,15 @@
         }
         try {
           await api.storage.local.set({ inFlight: { title: loan.title, id: loan.id, at: Date.now() } });
-          go(`/shelf/loans/${loan.id}/fulfill`);
-          let ready = await waitTop(HOW_TO_OPEN, 3000);
+          const problem = await openHowToOpen(loan);
           if (onAccountScreen()) {
             ending = ACCOUNT_SCREEN_STOP;
             fail(`${loan.title}: Libby went to ${location.pathname} instead of How to open`);
             break;
           }
-          if (!ready) {
-            log('  How to open did not open directly; trying Manage Loan. Screen shows:', onScreen());
-            go('/shelf/loans');
-            await sleep(800);
-            ready = await viaMenu(loan);
-          }
-          if (!ready) {
-            log(`  could not open How to open. Screen shows:`, onScreen());
-            note(loan, 'no format choice offered, skipped');
+          if (problem) {
+            log(`  ${problem}. Screen shows:`, onScreen());
+            note(loan, `skipped: ${problem}`);
             continue;
           }
           log('  How to open shows:', onScreen());
@@ -432,10 +462,7 @@
           note(loan, 'error: ' + err.message);
         } finally {
           await api.storage.local.remove('inFlight');
-          if (!onAccountScreen()) {
-            go('/shelf/loans');
-            await sleep(300);
-          }
+          if (!onAccountScreen() && !(await backToShelf())) lost = true;
         }
       }
     } catch (err) {
