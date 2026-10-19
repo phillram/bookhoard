@@ -193,7 +193,8 @@
     const early = topEls(/^return early$/i)[0];
     if (!early) return 'its Manage Loan sheet has no Return Early';
     pressReturn(early);
-    const gone = () => !readShelf().some(l => l.id === loan.id);
+    const link = `a[href$="/shelf/loans/${CSS.escape(loan.id)}/return"]`;
+    const gone = () => !document.querySelector(link);
     let confirmed = '';
     let clicks = 0;
     let lastClick = 0;

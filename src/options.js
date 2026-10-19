@@ -16,7 +16,10 @@ function current() {
   const s = {};
   for (const f of FIELDS) {
     const el = $(f);
-    s[f] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) || 0 : el.value;
+    if (el.type === 'checkbox') s[f] = el.checked;
+    else if (el.type !== 'number') s[f] = el.value;
+    // A cleared box means the default ("all" for the limit), not 0, which would mean "never pause".
+    else s[f] = el.value.trim() === '' ? DEFAULTS[f] : Math.max(Number(el.min) || 0, Number(el.value) || 0);
   }
   if (!s.template.trim()) s.template = DEFAULTS.template;
   return s;

@@ -32,6 +32,7 @@ async function remember(entry) {
 const mediaCache = new Map();
 function media(overdriveId) {
   if (!mediaCache.has(overdriveId)) {
+    if (mediaCache.size >= 300) mediaCache.delete(mediaCache.keys().next().value);
     mediaCache.set(overdriveId, fetchMedia(overdriveId).catch(err => {
       mediaCache.delete(overdriveId);
       throw err;
@@ -140,7 +141,7 @@ api.webRequest?.onHeadersReceived.addListener(async details => {
   // Libby opens downloads in its own tab, so the browser's error page replaces Libby. Load the
   // shelf again (a normal visit; reloading the book's own screen can upset Libby), and the page
   // carries on after a pause.
-  if (details.type === 'main_frame' && details.tabId >= 0) {
+  if (details.type === 'main_frame' && details.tabId >= 0 && pending && Date.now() - pending.at < 60000) {
     setTimeout(() => api.tabs.update(details.tabId, { url: 'https://libbyapp.com/shelf' })
       .catch(err => log('could not reopen the shelf:', err)), 1500);
   }
@@ -183,13 +184,16 @@ if (api.downloads.onDeterminingFilename) {
   };
   const settle = async (oursId, state, error) => {
     const original = replacing.get(oursId);
-    if (original === undefined) return;
+    if (original === undefined || (state !== 'complete' && state !== 'interrupted')) return;
+    const again = fetches.get(oursId);
+    fetches.delete(oursId);
     if (state === 'complete') {
       replacing.delete(oursId);
+      // Done with this address. (A failed one is kept: it may be fetched again shortly.)
+      if (again) setTimeout(() => ours.delete(again.url), 60000);  // its onCreated has long passed
       await removeLibbysCopy(original);
     } else if (state === 'interrupted') {
       replacing.delete(oursId);
-      const again = fetches.get(oursId);
       // Usually OverDrive saying "too many requests". Try once more after the page's pause (saved,
       // because Firefox may unload this script while it waits).
       if (again && !again.retried && error !== 'USER_CANCELED') {
@@ -215,7 +219,7 @@ if (api.downloads.onDeterminingFilename) {
       try {
         ours.add(r.url);
         const id = await api.downloads.download({ url: r.url, filename: r.filename, conflictAction: r.conflictAction });
-        known.set(id, r.book);
+        remembered(id, r.book);
         replacing.set(id, r.original);
         fetches.set(id, { ...r, retried: true });
         log('fetching the renamed copy again:', r.filename);
@@ -239,7 +243,7 @@ if (api.downloads.onDeterminingFilename) {
       ours.add(url);
       ours.add(item.url);
       const id = await api.downloads.download({ url, filename: t.filename, conflictAction: t.conflictAction });
-      known.set(id, book);
+      remembered(id, book);
       replacing.set(id, item.id);
       fetches.set(id, { url, filename: t.filename, conflictAction: t.conflictAction, book });
       // A tiny .acsm can finish before we start listening for it.
@@ -285,6 +289,7 @@ api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         return true;
       }
       case 'downloaded': {
+        if (!/^\d+$/.test(String(msg.overdriveId))) return false;
         const found = await api.downloads.search({
           urlRegex: `contentreserve\\.com/[^?]*_${msg.overdriveId}\\.(acsm|epub|pdf)`,
         });

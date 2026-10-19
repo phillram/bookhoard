@@ -75,8 +75,8 @@ Click the bookhoard icon in your toolbar.
 3. Click **Copy log** on the results panel and paste it into a
    [GitHub issue](https://github.com/phillram/bookhoard/issues).
 
-The log has what happened to each book and the file names it chose. It doesn't include your
-download links.
+The log has what happened to each book (with its title) and the file names it chose. It doesn't
+include your download links.
 
 ## License
 
