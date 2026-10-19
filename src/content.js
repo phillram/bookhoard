@@ -1234,9 +1234,10 @@
   // Checked twice a second, so kept cheap: at least two Borrow / Place Hold buttons on book cards.
   function listingHere() {
     if (shelfPath() || /^\/shelf\//.test(location.pathname) || onAccountScreen() || /\/request/.test(location.pathname)) return false;
+    // Libby's Borrow on a card may be a button or a link (to the borrow screen).
     let n = 0;
-    for (const b of activeScreen().querySelectorAll('.title-tile-shell button, .title-tile-shell [role=button]')) {
-      if (BORROW_BUTTON.test(b.textContent.trim()) && ++n >= 2) return true;
+    for (const b of activeScreen().querySelectorAll('.title-tile-shell :is(a, button, [role=button])')) {
+      if (BORROW_BUTTON.test(b.textContent.replace(/\s+/g, ' ').trim()) && ++n >= 2) return true;
     }
     return false;
   }
