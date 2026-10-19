@@ -216,7 +216,7 @@
     if (!running) return;
     paused = !paused;
     log(paused ? 'paused' : 'resumed');
-    render(paused ? 'Paused. Press Resume to carry on.' : 'Resuming…');
+    render(paused ? 'Pausing after this book…' : 'Resuming…');
   }
 
   function buildPanel() {
@@ -412,7 +412,7 @@
       results.push({ title: loan.title, result, ok });
       if (ok) downloaded++;
       render(stopRequested ? `Stopping after this book… ${count()}`
-        : paused ? `Paused after this book. ${count()}` : `Working… ${count()}`);
+        : paused ? `Pausing after this book… ${count()}` : `Working… ${count()}`);
     };
     render('Starting…');
     let ending = 'Done.';
@@ -453,7 +453,12 @@
       log(`${shelf.length} loans on the shelf`);
       for (let i = 0; i < shelf.length; i++) {
         const loan = shelf[i];
-        while (paused && !stopRequested) await sleep(200);
+        // Paused: the current book has finished, so say so, and wait for Resume or Stop.
+        if (paused && !stopRequested) {
+          render(`Paused. ${count()}. Press Resume to carry on.`);
+          while (paused && !stopRequested) await sleep(200);
+          if (!stopRequested) render(`Working… ${count()}`);
+        }
         if (stopRequested) { ending = 'Stopped.'; break; }
         if (onAccountScreen()) { ending = ACCOUNT_SCREEN_STOP; fail(ending, location.pathname); break; }
         if (lost) {
