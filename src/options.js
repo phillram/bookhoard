@@ -2,7 +2,7 @@ import { DEFAULTS, VARIABLES, SAMPLE, buildPath, unknownVariables } from './temp
 
 const api = globalThis.browser ?? globalThis.chrome;
 const $ = id => document.getElementById(id);
-const FIELDS = ['folder', 'template', 'formatOrder', 'conflict', 'batchPause', 'batchSize', 'debug'];
+const FIELDS = ['folder', 'template', 'formatOrder', 'conflict', 'batchPause', 'batchSize', 'autoClose', 'debug'];
 
 // A second example with no series and a DRM-free PDF, to show optional parts dropping out.
 const STANDALONE = {

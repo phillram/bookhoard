@@ -442,6 +442,8 @@
            choices: root.querySelector('.choices'), picker: root.querySelector('.picker'),
            pickList: root.querySelector('.pick-list'), pickCount: root.querySelector('.pick-count'),
            pickQuick: root.querySelector('.pick-quick') };
+    ui.panel.addEventListener('mouseenter', () => { hovering = true; });
+    ui.panel.addEventListener('mouseleave', () => { hovering = false; });
     ui.close.addEventListener('click', () => { resumeCancelled = true; panelOpen = false; results = []; render(''); });
     ui.copy.addEventListener('click', () => copyReport().catch(err => fail('copy log failed:', err)));
     ui.stop.addEventListener('click', requestStop);
@@ -650,6 +652,48 @@
     if (!host.isConnected) document.body.append(host);
   }
 
+  // Get the shelf showing before the real work starts (from whatever page the button was clicked
+  // on). Returns null, or why it couldn't.
+  async function reachShelf() {
+    if (onShelfPage() || (await backToShelf({ emptyOk: true, fromAnywhere: true }))) return null;
+    fail("couldn't reach the shelf from", location.pathname, '- screen shows:', onScreen());
+    return "Couldn't get to your shelf from this page. Open it, then try again.";
+  }
+
+  // After a run: Cancel just closes the panel. Otherwise it shows how it went and closes itself
+  // after the seconds set in the options (default 5; 0 keeps it open). It stays open while the
+  // pointer is over it, and when something went wrong, so Copy log is at hand.
+  let closeTimer = 0;
+  let hovering = false;
+  const PROBLEM = /^(skipped:|error|not returned)|no download started/i;
+  async function endRun(text, { cancelled = false, ok = true } = {}) {
+    running = false;
+    clearTimeout(closeTimer);
+    if (cancelled) {
+      panelOpen = false;
+      results = [];
+      render('');
+      syncUi();
+      return;
+    }
+    render(text);
+    syncUi();
+    if (!ok || results.some(r => PROBLEM.test(r.result))) return;
+    const { settings = {} } = await api.storage.local.get('settings');
+    const seconds = Number(settings.autoClose ?? 5);
+    if (!(seconds > 0)) return;
+    const later = () => {
+      closeTimer = setTimeout(() => {
+        if (running) return;
+        if (hovering) return later();
+        panelOpen = false;
+        results = [];
+        render('');
+      }, seconds * 1000);
+    };
+    later();
+  }
+
   // ---- The download run -----------------------------------------------------------------------
 
   // After "too many requests": long enough for Libby's download server to allow a full batch again
@@ -697,6 +741,7 @@
 
   async function run({ resume = false } = {}) {
     running = true;
+    clearTimeout(closeTimer);
     mode = 'download';
     panelOpen = true;
     stopRequested = false;
@@ -716,16 +761,18 @@
     };
     render('Starting…');
     let ending = 'Done.';
+    let cancelled = false;
+    let ok = true;
     try {
-      // From whatever Libby page the run was started on. (Libby keeps the loan cards in the page on
-      // its other pages too, so finding cards doesn't mean the shelf is showing.)
-      if (!onShelfPage() && !(await backToShelf({ emptyOk: true, fromAnywhere: true }))) {
-        ending = "Couldn't get to your shelf from this page. Open it, then try again.";
-        fail(ending, location.pathname, 'Screen shows:', onScreen());
-        return;
+      // Libby keeps the loan cards in the page on every page, so the list can be shown right here.
+      // Only go to the shelf first if they aren't there yet, or when carrying on after a reload.
+      if (resume || !readShelf().length) {
+        const why = await reachShelf();
+        if (why) { ending = why; ok = false; return; }
       }
       if (!(await shelfReady())) {
         ending = 'No loans showing. Open your Libby shelf, then try again.';
+        ok = false;
         fail('no loans found on', location.pathname, '- screen shows:', onScreen());
         return;
       }
@@ -821,9 +868,12 @@
            { id: 'new', label: 'Not downloaded', pick: fresh },
            { id: 'none', label: 'None', pick: () => false }],
           { label: k => `Download ${k}`, danger: false });
-        if (!todo) { ending = 'Cancelled.'; return; }
+        if (!todo) { cancelled = true; return; }
         await api.storage.local.set({ downloadChoice: todo.map(l => l.id) });
       }
+      // Now the work starts: get the shelf showing.
+      const why = await reachShelf();
+      if (why) { ending = why; ok = false; return; }
       let lost = false;
       log(`${loans.length} loans on the shelf; downloading ${todo.length}${resume ? ' (carrying on)' : ''}:`,
         todo.map(l => l.title));
@@ -959,12 +1009,12 @@
     } catch (err) {
       fail('run failed:', err);
       ending = 'Something went wrong: ' + err.message;
+      ok = false;
     } finally {
       await api.storage.local.remove('inFlight');
-      log('run finished:', ending, count());
-      running = false;
-      render(results.length ? `${ending} ${count()}.` : ending);
-      syncUi();
+      log('run finished:', cancelled ? 'cancelled' : ending, count());
+      if (!/^(Done|Stopped)\./.test(ending)) ok = false;
+      await endRun(results.length ? `${ending} ${count()}.` : ending, { cancelled, ok });
     }
   }
 
@@ -974,6 +1024,7 @@
   // can be kept. A loan only counts as returned once its card has gone from the shelf.
   async function returnAll() {
     running = true;
+    clearTimeout(closeTimer);
     mode = 'return';
     panelOpen = true;
     stopRequested = false;
@@ -990,16 +1041,17 @@
     };
     render('Looking at your loans…');
     let ending = 'Done.';
+    let cancelled = false;
+    let ok = true;
     try {
-      // From whatever Libby page the run was started on. (Libby keeps the loan cards in the page on
-      // its other pages too, so finding cards doesn't mean the shelf is showing.)
-      if (!onShelfPage() && !(await backToShelf({ emptyOk: true, fromAnywhere: true }))) {
-        ending = "Couldn't get to your shelf from this page. Open it, then try again.";
-        fail(ending, location.pathname, 'Screen shows:', onScreen());
-        return;
+      // The list can be shown right here (see Download); the shelf is only needed for the returns.
+      if (!readShelf().length) {
+        const why = await reachShelf();
+        if (why) { ending = why; ok = false; return; }
       }
       if (!(await shelfReady())) {
         ending = 'No loans showing. Open your Libby shelf, then try again.';
+        ok = false;
         return;
       }
       const loans = readShelf();
@@ -1021,7 +1073,9 @@
          { id: 'downloaded', label: 'Downloaded', pick: r => !nd.has(r.loan.id) },
          { id: 'none', label: 'None', pick: () => false }],
         { label: k => `Return ${k}`, danger: true });
-      if (!todo) { ending = 'Cancelled. Nothing was returned.'; return; }
+      if (!todo) { cancelled = true; return; }
+      const why = await reachShelf();
+      if (why) { ending = why; ok = false; return; }
       log(`returning ${todo.length} of ${loans.length} loans:`, todo.map(l => l.title));
       render(`Returning… ${count()}`);
 
@@ -1075,12 +1129,12 @@
     } catch (err) {
       fail('return run failed:', err);
       ending = 'Something went wrong: ' + err.message;
+      ok = false;
     } finally {
       if (choose) choose(null);
-      log('return run finished:', ending, count());
-      running = false;
-      render(results.length ? `${ending} ${count()}.` : ending);
-      syncUi();
+      log('return run finished:', cancelled ? 'cancelled' : ending, count());
+      if (!/^(Done|Stopped)\./.test(ending)) ok = false;
+      await endRun(results.length ? `${ending} ${count()}.` : ending, { cancelled, ok });
     }
   }
 

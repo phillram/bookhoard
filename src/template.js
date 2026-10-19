@@ -10,6 +10,7 @@ export const DEFAULTS = {
   conflict: 'uniquify',            // 'uniquify' | 'overwrite'
   batchSize: 10,                   // pause after this many books...
   batchPause: 120,                 // ...for this many seconds (0 = never pause)
+  autoClose: 5,                    // close the panel this many seconds after a run (0 = keep it open)
   debug: false,                    // log every step to the console
 };
 
