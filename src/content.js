@@ -733,7 +733,7 @@
   // pointer is over it, and when something went wrong, so Copy log is at hand.
   let closeTimer = 0;
   let hovering = false;
-  const PROBLEM = /^(skipped:|error|not returned|not borrowed)|no download started/i;
+  const PROBLEM = /^(skipped:|error|not returned|not borrowed|not cancelled)|no download started/i;
   async function endRun(text, { cancelled = false, ok = true } = {}) {
     running = false;
     clearTimeout(closeTimer);
@@ -1396,6 +1396,75 @@
     return { skip: `needs your ${tried[0] || 'library'} card verified` };
   }
 
+  // Leftover holds: after borrowing a book you were holding, its hold(s) are cancelled, so Libby
+  // doesn't lend you a second copy later. This is the only place bookhoard clicks Cancel, and only
+  // on a "Cancel Hold" for that exact book (its address ends in the book's number) and its own
+  // confirm screen.
+  const CANCEL_HOLD = /^cancel hold!?$/i;
+  const pressCancelHold = (el, titleId) => {
+    const label = txt(el);
+    if (onAccountScreen()) throw new Error('on a Libby account screen; not clicking ' + label);
+    const href = el.closest('a')?.getAttribute('href') || '';
+    const onItsScreen = new RegExp(`^/shelf/holds/[^/]+-${titleId}/cancel/?$`).test(location.pathname);
+    if (!CANCEL_HOLD.test(label) && !(onItsScreen && /^cancel( hold)?!?$/i.test(label))) throw new Error('refused to click ' + label);
+    if (!onItsScreen && !new RegExp(`-${titleId}/cancel/?$`).test(href)) throw new Error(`refused: that hold isn't for book ${titleId}`);
+    el.click();
+    return label;
+  };
+
+  // Your Holds shelf, through Libby's own buttons (the footer's Shelf, then its Holds tab).
+  async function toHolds() {
+    if (/^\/shelf\/holds\/?$/.test(location.pathname)) return true;
+    if (!shelfPath() && !(await backToShelf({ emptyOk: true, fromAnywhere: true }))) return false;
+    const tab = topEls(/^holds\b/i).map(e => e.closest('a, button, [role=button]') || e)[0];
+    if (!tab) return false;
+    press(tab);
+    for (let w = 0; w < 50 && !/^\/shelf\/holds\/?$/.test(location.pathname); w++) await sleep(100);
+    await sleep(500);
+    return /^\/shelf\/holds\/?$/.test(location.pathname);
+  }
+
+  // Cancel every hold you have on this book. Returns how many, or throws why not.
+  async function cancelHoldsOn(book) {
+    let cancelled = 0;
+    for (let k = 0; k < 4; k++) {
+      if (!(await toHolds())) throw new Error("couldn't open your holds");
+      const card = [...activeScreen().querySelectorAll('.title-tile-shell')].find(c => c.getClientRects().length &&
+        ([...c.querySelectorAll('a[href]')].some(a => new RegExp(`/${book.titleId}/?$`).test(a.getAttribute('href'))) ||
+         txt([...c.querySelectorAll('*')].find(e => COVER.test(txt(e)))).match(COVER)?.[1] === book.title));
+      if (!card) break;  // no hold left on it
+      card.scrollIntoView({ block: 'center' });
+      await sleep(400);
+      const manage = deepestOf([...card.querySelectorAll('button, a, [role=button]')].filter(e => /^manage hold$/i.test(txt(e))))[0];
+      if (!manage) throw new Error('its hold has no Manage Hold button');
+      manage.click();
+      const linkFor = () => [...document.querySelectorAll(`a[href$="-${book.titleId}/cancel"]`)].find(onTop);
+      for (const t = activeNow(); activeNow() - t < 4000 && !linkFor(); ) await sleep(200);
+      const link = linkFor();
+      if (!link) {
+        if (cancelled) break;  // the sheet was for this book, and it has no hold left
+        throw new Error("its Manage Hold sheet has no Cancel Hold for this book");
+      }
+      const holdId = link.getAttribute('href').match(/\/shelf\/holds\/([^/]+)\/cancel/)[1];
+      pressCancelHold(link, book.titleId);
+      // Its confirm screen (/shelf/holds/<id>/cancel): Libby's own confirm button.
+      const confirmFor = () => location.pathname.replace(/\/$/, '') === `/shelf/holds/${holdId}/cancel` &&
+        [...document.querySelectorAll('.circ-confirm-button, button, [role=button]')].find(b => onTop(b) && /^cancel( hold)?!?$/i.test(txt(b)));
+      for (const t = activeNow(); activeNow() - t < 6000 && !confirmFor(); ) await sleep(200);
+      const confirm = confirmFor();
+      if (!confirm) {
+        log('  no confirm. Screen shows:', onScreen());
+        throw new Error("Libby's cancel screen didn't show its confirm button");
+      }
+      log(`  cancelling the hold ${holdId}: ${pressCancelHold(confirm, book.titleId)}`);
+      // Done once Libby leaves the confirm screen (or shows its "cancelled" screen).
+      for (const t = activeNow(); activeNow() - t < 8000 && confirmFor(); ) await sleep(200);
+      await sleep(800);
+      cancelled++;
+    }
+    return cancelled;
+  }
+
   // Back to the list page the run started on: Keep Browsing, or Libby's own Back button at the top
   // of its screens. (Never the browser's Back, which can leave Libby altogether.)
   async function backToList(listPath) {
@@ -1421,8 +1490,9 @@
     let borrowed = 0;
     let held = 0;
     let had = 0;  // already on your shelf by the time its turn came
+    let dropped = 0;  // leftover holds cancelled
     const count = () => `${borrowed} borrowed, ${held} holds` + (had ? `, ${had} already yours` : '') +
-      `, ${results.length - borrowed - held - had} not`;
+      (dropped ? `, ${dropped} holds cancelled` : '') + `, ${results.filter(r => !r.ok).length} not`;
     const note = (book, result, ok = false) => {
       log(`${book.title} [${book.titleId}]: ${result}`);
       results.push({ title: book.title, result, ok });
@@ -1467,6 +1537,7 @@
       render(`Borrowing… ${count()}`);
 
       let failedInARow = 0;
+      const heldBorrowed = [];
       for (let i = 0; i < todo.length; i++) {
         const book = todo[i];
         if (paused && !stopRequested) {
@@ -1502,6 +1573,7 @@
           }
           note(book, r.ok ? r.result : `not borrowed: ${r.result}`, !!r.ok);
           failedInARow = r.ok ? 0 : failedInARow + 1;
+          if (r.ok && book.state === 'heldNow' && /^borrowed/.test(r.result)) heldBorrowed.push(book);
           if (r.limit) { ending = `Libby says: ${r.result}`; break; }
         } catch (err) {
           if (err instanceof StopNow) { ending = 'Stopped.'; break; }
@@ -1513,6 +1585,24 @@
         }
         if (!onAccountScreen() && location.pathname !== listPath) await backToList(listPath);
         await sleep(1000);  // a moment between books, as a person would take
+      }
+      // The holds you no longer need: books you were holding and have now borrowed.
+      if (heldBorrowed.length && !stopRequested) {
+        render(`Cancelling ${heldBorrowed.length} hold${heldBorrowed.length === 1 ? '' : 's'} you no longer need… ${count()}`);
+        for (const book of heldBorrowed) {
+          if (stopRequested) break;
+          try {
+            const n = await cancelHoldsOn(book);
+            log(`${book.title} [${book.titleId}]: ${n} hold${n === 1 ? '' : 's'} cancelled`);
+            if (n) results.push({ title: book.title, result: `hold cancelled${n > 1 ? ` (${n})` : ''}`, ok: true });
+            dropped += n;
+          } catch (err) {
+            fail(`${book.title}: hold not cancelled:`, err.message);
+            results.push({ title: book.title, result: `not cancelled: ${err.message}`, ok: false });
+            backToShelf({ emptyOk: true }).catch(() => {});
+          }
+          render(`Cancelling holds… ${count()}`);
+        }
       }
     } catch (err) {
       fail('borrow run failed:', err);

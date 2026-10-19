@@ -69,6 +69,9 @@ bookhoard uses whichever of your libraries has a copy now. If a library card nee
 tries your other libraries instead. If none of them can lend the book, it skips it and says so;
 verify the card in Libby and run Borrow again for the rest.
 
+If you already had one of the books on hold and bookhoard borrows it somewhere else, it cancels
+that hold, so Libby doesn't lend you a second copy later.
+
 ## Options
 
 Click the bookhoard icon in your browser's toolbar to choose how files are named, where they're
