@@ -446,7 +446,7 @@
       const batchSize = Math.max(1, Number(settings.batchSize ?? 10) || 10);
       let batchPauseMs = Math.max(0, Number(settings.batchPause ?? 60)) * 1000;
       const perBook = (await ask({ type: 'requestsPerBook' })) || 1;
-      const breakAt = batchSize * perBook;  // requests between breaks
+      const breakAt = batchSize;  // requests between breaks: a Chrome book is 1, a Firefox book 2
       const getPace = async () => (await api.storage.local.get('pace')).pace || { count: 0, lastAt: 0 };
       const setPace = pace => api.storage.local.set({ pace });
       const runStart = Date.now();
