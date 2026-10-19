@@ -9,11 +9,45 @@
   window.__bookhoard = true;
 
   const api = globalThis.browser ?? globalThis.chrome;
+  // Libby only redraws while its tab is showing: in a background tab browsers slow timers right
+  // down and Libby's sheets don't open. So a run waits while the tab is hidden and carries on when
+  // it's back, and the step timers (activeNow) don't count the hidden time.
+  let hiddenSince = document.hidden ? Date.now() : 0;
+  let hiddenTotal = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) hiddenSince = Date.now();
+    else if (hiddenSince) { hiddenTotal += Date.now() - hiddenSince; hiddenSince = 0; }
+  });
+  const activeNow = () => Date.now() - hiddenTotal - (hiddenSince ? Date.now() - hiddenSince : 0);
+  const shown = () => new Promise(resolve => {
+    const check = () => {
+      if (document.hidden) return;
+      document.removeEventListener('visibilitychange', check);
+      resolve();
+    };
+    document.addEventListener('visibilitychange', check);
+    check();
+  });
+
   // During a book's steps, Stop takes effect at the next wait (within a fraction of a second).
   class StopNow extends Error {}
   let interruptible = false;
-  const sleep = ms => new Promise((resolve, reject) => setTimeout(
-    () => (interruptible && stopRequested ? reject(new StopNow('stopped')) : resolve()), ms));
+  let waitingForTab = false;
+  const sleep = ms => new Promise((resolve, reject) => setTimeout(async () => {
+    if (running && document.hidden) {
+      if (!waitingForTab) {
+        waitingForTab = true;
+        const from = Date.now();
+        await shown();
+        waitingForTab = false;
+        log(`  waited ${Math.round((Date.now() - from) / 1000)}s for the Libby tab to be showing again`);
+      } else {
+        await shown();
+      }
+    }
+    if (interruptible && stopRequested) reject(new StopNow('stopped'));
+    else resolve();
+  }, ms));
   const txt = el => (el?.innerText || el?.getAttribute?.('aria-label') || '').trim().replace(/\s+/g, ' ');
   const NEVER = /return|renew|suspend|cancel|delete|remove|passkey|sign out|log out|forget|unlink/i;
   // When returning loans, only buttons that say Return (early) may be clicked to change a loan.
@@ -42,8 +76,8 @@
     return hits.filter(e => !hits.some(o => o !== e && e.contains(o)));
   };
   const waitTop = async (re, ms) => {
-    const t = Date.now();
-    while (Date.now() - t < ms) {
+    const t = activeNow();
+    while (activeNow() - t < ms) {
       const el = topEls(re)[0];
       if (el) return el;
       await sleep(100);
@@ -242,14 +276,14 @@
     let confirmed = '';
     let clicks = 0;
     let lastClick = 0;
-    for (const t = Date.now(); Date.now() - t < 10000; await sleep(200)) {
+    for (const t = activeNow(); activeNow() - t < 10000; await sleep(200)) {
       if (onAccountScreen()) return `Libby went to ${location.pathname}`;
       if (gone()) break;
       if (confirmed && topEls(/^go to shelf$/i).length) break;  // Libby's "returned" screen
       // Libby asks on its "Returning" screen. Confirm only there, and only for this loan: the address
       // names it. Its RETURN LOAN button, or failing that any real button saying Return (not the
       // "Returning" heading). A second time only if Libby still shows it 5 seconds later.
-      if (clicks >= 2 || Date.now() - lastClick < 5000) continue;
+      if (clicks >= 2 || activeNow() - lastClick < 5000) continue;
       if (location.pathname.replace(/\/$/, '') !== `/shelf/loans/${loan.id}/return`) continue;
       const confirm = topEls(RETURN_BUTTON)
         .map(e => e.closest('button, a, [role=button]'))
@@ -259,7 +293,7 @@
         confirmed = pressReturn(confirm);
         interruptible = false;  // the return is under way: see it through
         clicks++;
-        lastClick = Date.now();
+        lastClick = activeNow();
         log(`  confirming: ${confirmed}`);
       }
     }
@@ -272,7 +306,7 @@
     const toShelf = topEls(/^go to shelf$/i)[0];
     if (toShelf) press(toShelf);
     await backToShelf({ emptyOk: true });
-    for (const t = Date.now(); Date.now() - t < 5000 && !gone(); ) await sleep(200);
+    for (const t = activeNow(); activeNow() - t < 5000 && !gone(); ) await sleep(200);
     if (gone()) return null;
     log('  still on the shelf. Screen shows:', onScreen());
     return 'Libby still shows it on the shelf after confirming';
@@ -926,7 +960,7 @@
           }
           // How to open slides in over the Manage Loan sheet: wait until the sheet is gone and the
           // format rows have appeared, rather than judging a half-drawn screen.
-          for (const t = Date.now(); Date.now() - t < 4000; await sleep(100)) {
+          for (const t = activeNow(); activeNow() - t < 4000; await sleep(100)) {
             if (!sheetOpen() && topEls(/^(EPUB|PDF)\b|^other options/i).length) break;
           }
           log('  How to open shows:', onScreen());
@@ -955,13 +989,13 @@
           let confirmed = false;
           let started = false;
           let doneSince = 0;
-          for (const t = Date.now(); Date.now() - t < 15000; await sleep(250)) {
+          for (const t = activeNow(); activeNow() - t < 15000; await sleep(250)) {
             if (await ask({ type: 'started', overdriveId: loan.titleId, since })) { started = true; break; }
             // Libby's Done screen means it handed over the file. If bookhoard still hasn't seen the
             // download two seconds later, trust Libby rather than waiting out the full 15 seconds.
             if (topEls(/^done$/i).length) {
-              doneSince ||= Date.now();
-              if (Date.now() - doneSince > 2000) {
+              doneSince ||= activeNow();
+              if (activeNow() - doneSince > 2000) {
                 started = true;
                 fail(`${loan.title}: Libby showed Done but bookhoard didn't see the download; check its file name`);
                 break;
