@@ -242,8 +242,19 @@
       </g>
     </svg>`;
 
-  // The same tray with the arrow pointing up: sending the books back.
-  const RETURN_ICON = ICON.replace('M32,14 L32,38 M23.5,29.5 L32,38 L40.5,29.5', 'M32,38 L32,14 M23.5,22.5 L32,14 L40.5,22.5');
+  // A closed book with a return arrow on its cover: sending the book back.
+  const RETURN_ICON = `
+    <svg version="1.1" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" class="shibui-graphic icon"
+         aria-hidden="true" data-decorative="">
+      <g fill="none" stroke="none">
+        <path class="color-shadow icon-solid" d="M25.5,13 L43,13 C44.1,13 45,13.9 45,15 L45,49 C45,50.1 44.1,51 43,51 L25.5,51 Z"
+              fill="#000000" fill-opacity="0.08"></path>
+        <path class="color-highlight icon-hollow" d="M22,12 L43,12 C44.7,12 46,13.3 46,15 L46,49 C46,50.7 44.7,52 43,52 L22,52 C20.3,52 19,50.7 19,49 L19,15 C19,13.3 20.3,12 22,12 Z M24.5,12 L24.5,52"
+              stroke="#000000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path class="icon-hollow" d="M31,24.5 L27.5,28 L31,31.5 M27.5,28 L36.5,28 C39.5,28 41.5,30.4 41.5,33.25 C41.5,36.1 39.5,38.5 36.5,38.5 L31,38.5"
+              stroke="#000000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+      </g>
+    </svg>`;
 
   function footerButton(bar, { name, label, aria, icon, start }) {
     const btn = document.createElement('button');
