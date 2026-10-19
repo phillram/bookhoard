@@ -733,7 +733,7 @@
   // pointer is over it, and when something went wrong, so Copy log is at hand.
   let closeTimer = 0;
   let hovering = false;
-  const PROBLEM = /^(skipped:|error|not returned|not borrowed|not cancelled)|no download started/i;
+  const PROBLEM = /^(skipped:|error|not returned|not borrowed|not cancelled|libby couldn)|no download started/i;
   async function endRun(text, { cancelled = false, ok = true } = {}) {
     running = false;
     clearTimeout(closeTimer);
@@ -1022,6 +1022,7 @@
           // shows a Done screen). Click a confirm button if Libby asks first.
           let confirmed = false;
           let started = false;
+          let libbyFailed = false;
           let doneSince = 0;
           for (const t = activeNow(); activeNow() - t < 15000; await sleep(250)) {
             if (await ask({ type: 'started', overdriveId: loan.titleId, since })) { started = true; break; }
@@ -1037,6 +1038,13 @@
             }
             const c = !confirmed && topEls(/^(download|continue|confirm|ok|yes|got it)$/i)[0];
             if (c) { log('  confirming:', txt(c)); press(c); confirmed = true; }
+            // Libby's own error screen ("Something didn't work"): no file is coming.
+            if (topEls(/^something didn.t work/i)[0]) { libbyFailed = true; break; }
+          }
+          if (!started && libbyFailed) {
+            fail(`${loan.title}: Libby said "Something didn't work" after ${format} was chosen`);
+            note(loan, `Libby couldn't deliver the ${format} ("Something didn't work"); try it in Libby`);
+            continue;
           }
           if (!started) {
             if ((await checkRateLimit()) && !retried.has(loan.id)) {
