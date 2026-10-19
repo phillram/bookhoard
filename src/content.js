@@ -1239,9 +1239,17 @@
   }
   // Is this a page listing books to borrow? (Not the shelf, Libby's /interview screens, or a
   // borrow screen.)
-  // Checked twice a second, so kept cheap: at least two Borrow / Place Hold buttons on book cards.
+  // A book's own page (its address ends in the book's number). Its book cards are other lists
+  // ("Other Titles in List"), not its series, which is behind its "Series: ..." link.
+  const bookPage = () => /\/\d+\/?$/.test(location.pathname);
+  const seriesLink = () => [...activeScreen().querySelectorAll('a.block-strap-flex, a[href*="/series-"]')]
+    .find(a => /^\s*series:/i.test(a.textContent) && /\/series-\d+/.test(a.getAttribute('href') || ''));
+
+  // Checked twice a second, so kept cheap: at least two Borrow / Place Hold buttons on book cards,
+  // or a book's page that belongs to a series.
   function listingHere() {
     if (shelfPath() || /^\/shelf\//.test(location.pathname) || onAccountScreen() || /\/request/.test(location.pathname)) return false;
+    if (bookPage()) return !!seriesLink();
     // Libby's Borrow on a card may be a button or a link (to the borrow screen).
     let n = 0;
     for (const b of activeScreen().querySelectorAll('.title-tile-shell :is(a, button, [role=button])')) {
@@ -1393,6 +1401,16 @@
     let cancelled = false;
     let ok = true;
     try {
+      // On a book's own page: go to its series first, so the list is the whole series.
+      if (bookPage()) {
+        const link = seriesLink();
+        if (!link) { ending = "This book isn't part of a series."; ok = false; return; }
+        log(`opening its series: ${txt(link)}`);
+        press(link);
+        for (const t = activeNow(); activeNow() - t < 10000 && (bookPage() || !listedBooks().length); ) await sleep(200);
+        if (bookPage()) { ending = "Couldn't open the series page."; ok = false; return; }
+        await sleep(500);
+      }
       const listPath = location.pathname;
       await loadWholeList();
       const books = dedupe(listedBooks());

@@ -61,8 +61,8 @@ Books you haven't downloaded yet start unticked, so you don't return one by acci
 
 ## Borrow a series
 
-1. Open the series in Libby: on one of its books, tap **#2 in series** (or whichever number it is).
-2. Click **Borrow** at the bottom.
+1. Open a book that's part of a series, or the series itself.
+2. Click **Borrow** at the bottom. On a book's page, bookhoard opens its series first.
 3. Tick the books you want, then click **Borrow**. Books with a waitlist get a hold instead.
 
 bookhoard uses whichever of your libraries has a copy now. If a library card needs verifying, it
