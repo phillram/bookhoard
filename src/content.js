@@ -159,8 +159,9 @@
     for (let k = 0; k < 6; k++) {
       if (onAccountScreen()) return false;
       if (there()) return true;
-      // Somewhere else in Libby (not a screen over the shelf): use the footer's Shelf button.
-      if (!/^\/shelf(\/|$)/.test(location.pathname)) {
+      // Anywhere but a loan's own screens (/shelf/loans/<id>/...), which close with Done or Back:
+      // the library's pages, search, holds, tags, the menu. Use the footer's Shelf button.
+      if (!/^\/shelf\/loans\/[^/]+\//.test(location.pathname)) {
         if (await shelfFromFooter()) {
           for (let w = 0; w < 30 && !there(); w++) await sleep(100);
           continue;
@@ -713,6 +714,13 @@
     render('Starting…');
     let ending = 'Done.';
     try {
+      // Started on one of Libby's /interview pages (its menu lives there, beside sign-in and backup):
+      // leave by the footer's Shelf button, touching nothing on the page itself.
+      if (onAccountScreen()) await shelfFromFooter();
+      if (onAccountScreen()) {
+        ending = "Couldn't leave this Libby screen. Open your shelf, then try again.";
+        return;
+      }
       if (!onShelfPage()) await backToShelf(true);
       if (!(await shelfReady())) {
         ending = 'No loans showing. Open your Libby shelf, then try again.';
@@ -981,6 +989,13 @@
     render('Looking at your loans…');
     let ending = 'Done.';
     try {
+      // Started on one of Libby's /interview pages (its menu lives there, beside sign-in and backup):
+      // leave by the footer's Shelf button, touching nothing on the page itself.
+      if (onAccountScreen()) await shelfFromFooter();
+      if (onAccountScreen()) {
+        ending = "Couldn't leave this Libby screen. Open your shelf, then try again.";
+        return;
+      }
       if (!onShelfPage()) await backToShelf(true);
       if (!(await shelfReady())) {
         ending = 'No loans showing. Open your Libby shelf, then try again.';
