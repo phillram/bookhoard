@@ -193,20 +193,29 @@
     pressReturn(early);
     const gone = () => !readShelf().some(l => l.id === loan.id);
     let confirmed = '';
+    let clicks = 0;
+    let lastClick = 0;
     for (const t = Date.now(); Date.now() - t < 10000; await sleep(200)) {
       if (onAccountScreen()) return `Libby went to ${location.pathname}`;
       if (gone()) break;
       // Libby asks "are you sure?": click its Return button. Only once the Manage Loan sheet is
       // covered, and never the button just clicked, so a redrawn sheet isn't taken for the question.
-      const confirm = !confirmed && !topEls(/^(renew loan|read with)/i).length &&
-        topEls(RETURN_BUTTON).find(e => e !== early && !early.contains(e) && !e.contains(early));
+      // Only real buttons count (not a heading that says Return). Up to twice, 2 seconds apart.
+      if (clicks >= 2 || Date.now() - lastClick < 2000 || topEls(/^(renew loan|read with)/i).length) continue;
+      const confirm = topEls(RETURN_BUTTON)
+        .map(e => e.closest('button, a, [role=button]'))
+        .find(b => b && !b.contains(early) && !early.contains(b) && !ours(b));
       if (confirm) {
         confirmed = pressReturn(confirm);
+        clicks++;
+        lastClick = Date.now();
         log(`  confirming: ${confirmed}`);
       }
     }
     if (!gone()) {
       log('  still on the shelf. Screen shows:', onScreen());
+      // Close Libby's question so it doesn't sit over the shelf (Escape, never its Cancel button).
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
       return confirmed ? 'Libby still shows it after confirming' : "Libby didn't ask to confirm, and still shows it";
     }
     // Check it is really gone once Libby is back on the shelf, not just hidden behind a screen.
@@ -256,7 +265,7 @@
       </g>
     </svg>`;
 
-  function footerButton(bar, { name, label, aria, icon, start }) {
+  function footerButton(bar, { name, mine, label, aria, icon, start }) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = `app-footer-nav-bar-button-${name} nav-icon-selectable halo`;
@@ -270,8 +279,8 @@
       Object.assign(btn.querySelector('svg').style, { width: cs.width, height: cs.height });
     }
     btn.addEventListener('click', () => {
-      if (running) requestStop();
-      else start().catch(err => fail('run failed:', err));
+      if (!running) start().catch(err => fail('run failed:', err));
+      else if (mode === mine) requestStop();  // the other button is dimmed and does nothing
     });
     bar.append(btn);
     return btn;
@@ -280,8 +289,8 @@
   function buildNavButtons(bar) {
     navBtn?.remove();
     retBtn?.remove();
-    navBtn = footerButton(bar, { name: 'bookhoard', label: 'Download', aria: 'Download loans (bookhoard)', icon: ICON, start: run });
-    retBtn = footerButton(bar, { name: 'bookhoard-return', label: 'Return', aria: 'Return loans (bookhoard)', icon: RETURN_ICON, start: returnAll });
+    navBtn = footerButton(bar, { name: 'bookhoard', mine: 'download', label: 'Download', aria: 'Download loans (bookhoard)', icon: ICON, start: run });
+    retBtn = footerButton(bar, { name: 'bookhoard-return', mine: 'return', label: 'Return', aria: 'Return loans (bookhoard)', icon: RETURN_ICON, start: returnAll });
   }
 
   function requestStop() {
@@ -802,6 +811,10 @@
         if (failedInARow >= 2) {
           ending = "Couldn't return two books in a row, so bookhoard stopped. Copy log has the details.";
           break;
+        }
+        if (!readShelf().some(l => l.id === loan.id)) {
+          note(loan, 'already gone from the shelf');
+          continue;
         }
         try {
           const problem = await returnLoan(loan);
