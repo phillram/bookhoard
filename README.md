@@ -33,9 +33,10 @@ bookhoard in your browser's extensions page.
 
 If your browser asks about downloading multiple files, say yes.
 
-To return your loans, click **Return**. bookhoard asks first, and lists any books you haven't
-downloaded yet so you can keep those. Returning can't be undone; you'd have to borrow the book
-again.
+To return loans, click **Return**. It lists all your loans so you can tick the ones to send
+back (or use **All**, **Downloaded** or **None**), then click **Return**. Books you haven't
+downloaded yet are marked and start unticked. Returning can't be undone; you'd have to borrow the
+book again.
 
 ## Good to know
 
