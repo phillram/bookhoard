@@ -7,16 +7,16 @@ loan as an EPUB (or PDF), named like `Children of Time - Adrian Tchaikovsky`.
 
 ## Install
 
-Download `bookhoard-vX.Y.Z.zip` from the
+Get the zip for your browser from the
 [latest release](https://github.com/phillram/bookhoard/releases/latest).
 
-**Chrome or Edge**
+**Chrome or Edge**: `bookhoard-vX.Y.Z-chrome.zip`
 
 1. Unzip it.
 2. Go to `chrome://extensions` (or `edge://extensions`) and turn on Developer mode.
 3. Click **Load unpacked** and pick the unzipped folder.
 
-**Firefox**
+**Firefox**: `bookhoard-vX.Y.Z-firefox.zip`
 
 1. Go to `about:debugging#/runtime/this-firefox`.
 2. Click **Load Temporary Add-on** and pick the zip. You'll need to do this again after
@@ -41,8 +41,6 @@ If your browser asks about downloading multiple files, say yes.
 - Choosing a format locks that loan to it until you borrow the book again. That's how Libby
   works.
 - Skipped: audiobooks, loans you've already downloaded, and books with no EPUB or PDF.
-- Loans that say "Open In Libby" or "Open Book" are skipped unless you turn them on in the
-  options.
 
 ## Options
 

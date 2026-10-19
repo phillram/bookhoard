@@ -322,7 +322,6 @@
       log('run started; settings:', settings);
       const order = { 'epub-pdf': ['EPUB', 'PDF'], epub: ['EPUB'], 'pdf-epub': ['PDF', 'EPUB'] }[settings.formatOrder || 'epub-pdf'];
       const skipDownloaded = settings.skipDownloaded !== false;
-      const includeLocked = !!settings.includeLocked;
       const max = Number(settings.limit) > 0 ? Number(settings.limit) : Infinity;
       const { done = [] } = await api.storage.local.get('done');
       const doneIds = new Set(done);
@@ -339,7 +338,6 @@
         if (downloaded >= max) break;
         if (doneIds.has(loan.id)) continue;
         if (/audiobook/i.test(loan.main)) { note(loan, 'audiobook, skipped'); continue; }
-        if (!/^read with/i.test(loan.main) && !includeLocked) { note(loan, `skipped: says "${loan.main}"`); continue; }
         if (skipDownloaded && (await ask({ type: 'downloaded', overdriveId: loan.titleId }))) {
           await markDone(loan);
           note(loan, 'already downloaded');
@@ -363,8 +361,8 @@
             ready = await viaMenu(loan);
           }
           if (!ready) {
-            fail(`${loan.title}: could not open How to open. Screen shows:`, onScreen());
-            note(loan, "couldn't open, skipped");
+            log(`  could not open How to open. Screen shows:`, onScreen());
+            note(loan, 'no format choice offered, skipped');
             continue;
           }
           log('  How to open shows:', onScreen());

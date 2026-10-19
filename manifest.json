@@ -1,23 +1,29 @@
 {
   "manifest_version": 3,
   "name": "bookhoard",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Download all your Libby loans at once, with file names you choose.",
   "homepage_url": "https://github.com/phillram/bookhoard",
-  "permissions": ["downloads", "storage"],
+  "permissions": [
+    "downloads",
+    "storage"
+  ],
   "host_permissions": [
     "https://libbyapp.com/*",
     "https://thunder.api.overdrive.com/*"
   ],
   "background": {
     "service_worker": "src/background.js",
-    "scripts": ["src/background.js"],
     "type": "module"
   },
   "content_scripts": [
     {
-      "matches": ["https://libbyapp.com/*"],
-      "js": ["src/content.js"],
+      "matches": [
+        "https://libbyapp.com/*"
+      ],
+      "js": [
+        "src/content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
@@ -38,12 +44,5 @@
     "32": "icons/icon-32.png",
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
-  },
-  "browser_specific_settings": {
-    "gecko": {
-      "id": "bookhoard@phillram.github.io",
-      "strict_min_version": "128.0",
-      "data_collection_permissions": { "required": ["none"] }
-    }
   }
 }
