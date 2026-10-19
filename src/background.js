@@ -120,16 +120,32 @@ api.downloads.onCreated.addListener(async item => {
   log('download started for', book.download.overdriveId);
 });
 
+// bookhoard's record of finished downloads: { overdriveId: { d: download id, t: when } }. It keeps
+// the last 1,000 books, dropping the oldest (entries from before times were kept count as oldest).
+// Saves are queued, so two downloads finishing together can't overwrite each other.
+const RECORD_MAX = 1000;
+let recordQueue = Promise.resolve();
+function recordDownload(overdriveId, downloadId) {
+  recordQueue = recordQueue.then(async () => {
+    const { completed = {} } = await api.storage.local.get('completed');
+    completed[overdriveId] = { d: downloadId, t: Date.now() };
+    const ids = Object.keys(completed);
+    if (ids.length > RECORD_MAX) {
+      const when = id => completed[id]?.t ?? 0;
+      for (const id of ids.sort((a, b) => when(a) - when(b)).slice(0, ids.length - RECORD_MAX)) delete completed[id];
+    }
+    await api.storage.local.set({ completed });
+  }).catch(err => fail('could not save the download record:', err));
+  return recordQueue;
+}
+
 // Remember finished downloads by book, so "already downloaded" works whatever address the browser
 // recorded.
 api.downloads.onChanged.addListener(async delta => {
   if (delta.state?.current !== 'complete') return;
   const [item] = await api.downloads.search({ id: delta.id });
   const book = item && bookOf(item);
-  if (!book) return;
-  const { completed = {} } = await api.storage.local.get('completed');
-  completed[book.download.overdriveId] = delta.id;
-  await api.storage.local.set({ completed });
+  if (book) await recordDownload(book.download.overdriveId, delta.id);
 });
 
 // OverDrive's download server answers 429 Too Many Requests when books are fetched too fast.
@@ -308,7 +324,7 @@ api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           urlRegex: `contentreserve\\.com/[^?]*_${msg.overdriveId}\\.(acsm|epub|pdf)`,
         });
         const done = found.find(d => d.state === 'complete');
-        if (done) await api.storage.local.set({ completed: { ...completed, [msg.overdriveId]: done.id } });
+        if (done) await recordDownload(msg.overdriveId, done.id);
         return !!done || found.some(d => d.state === 'in_progress');
       }
       case 'started': {
