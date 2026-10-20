@@ -663,12 +663,24 @@
     const step = own.length >= 2 ? last.offsetLeft - own[own.length - 2].offsetLeft : 0;
     if (!(step > 0 && last.offsetWidth > 0 && last.offsetHeight > 0)) { footerLayout = ''; hide(); return; }
     const icon = bar.querySelector('button:not([class*="-bookhoard"]) svg');
+    // With a book open, Libby shows it in the footer too (cover, title, its own buttons): that
+    // space is taken. Its visible pieces, as screen rectangles.
+    const taken = [...document.querySelectorAll('.app-footer-now-bar *')]
+      .filter(e => !e.children.length || /^(img|svg|button)$/i.test(e.tagName))
+      .map(e => e.getBoundingClientRect()).filter(r => r.width > 0 && r.height > 0);
+    const box = bar.getBoundingClientRect();
+    const slot = k => ({ left: box.left + last.offsetLeft + (k + 1) * step, top: box.top + last.offsetTop });
+    const clear = [0, 1, 2].every(k => {
+      const { left, top } = slot(k);
+      return taken.every(r => r.right <= left || r.left >= left + last.offsetWidth || r.bottom <= top || r.top >= top + last.offsetHeight);
+    });
     const layout = [step, last.offsetLeft, last.offsetTop, last.offsetWidth, last.offsetHeight, innerWidth,
-      icon?.getBoundingClientRect().width].join();
+      icon?.getBoundingClientRect().width, clear].join();
     if (layout !== footerLayout) { footerLayout = layout; hide(); return; }  // still settling
     if (getComputedStyle(bar).position === 'static') bar.style.position = 'relative';
-    // On a narrow screen there is no room to the right, so sit just above the last three buttons.
-    const fits = bar.getBoundingClientRect().left + last.offsetLeft + 3 * step + last.offsetWidth <= innerWidth - 4;
+    // On a narrow screen, or beside an open book, there is no room to the right, so sit just above
+    // the last three buttons.
+    const fits = clear && box.left + last.offsetLeft + 3 * step + last.offsetWidth <= innerWidth - 4;
     const cs = icon && getComputedStyle(icon);
     mine.forEach((btn, k) => {
       if (!btn) return;
