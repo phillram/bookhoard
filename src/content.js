@@ -1613,7 +1613,9 @@
       const todo = await askPick(question,
         books.map(b => ({ loan: b, ticked: want(b), tag: label[b.state] || '', muted: b.state !== 'hold',
           off: ['loaned', 'held', 'notified'].includes(b.state) })),
-        [{ id: 'all', label: 'All', pick: r => want(r.loan) },
+        // All: everything that can be done (borrow, hold, Notify Me). Notify me adds those to what's
+        // checked; Available now checks only what can be borrowed right away.
+        [{ id: 'all', label: 'All', pick: r => want(r.loan) || r.loan.state === 'notify' },
          { id: 'now', label: 'Available now', pick: r => r.loan.state === 'borrow' || r.loan.state === 'heldNow' },
          ...(absent ? [{ id: 'notify', label: 'Notify me', pick: r => r.box.checked || r.loan.state === 'notify' }] : []),
          { id: 'none', label: 'None', pick: () => false }],
