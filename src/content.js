@@ -244,11 +244,16 @@
         if (!fromAnywhere || !(await shelfFromFooter())) return false;
         continue;
       }
-      if (!shelfPath() && (await shelfFromFooter())) {
-        for (let w = 0; w < 30 && !there(); w++) await sleep(100);
-        continue;
-      }
+      // A Done showing (Libby's "Downloaded as EPUB" screen) goes first: the footer's Shelf button
+      // doesn't close that screen.
       const done = doneButton();
+      if (!done && !shelfPath()) {
+        log('  closing: the footer Shelf button');
+        if (await shelfFromFooter()) {
+          for (let w = 0; w < 30 && !there(); w++) await sleep(100);
+          continue;
+        }
+      }
       const close = done || [/^(dismiss dialog|close)$/i, /^back$/i].map(re => topEls(re)[0]).find(Boolean);
       if (close) {
         if (close === done) close.scrollIntoView({ block: 'center' });
