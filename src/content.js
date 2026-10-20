@@ -248,10 +248,7 @@
         for (let w = 0; w < 30 && !there(); w++) await sleep(100);
         continue;
       }
-      // Libby's Done (after a download, "Downloaded as EPUB") often sits at the bottom, under the
-      // footer: find it on the current screen even so, rather than going Back a step at a time.
-      const done = topEls(/^done$/i)[0] ||
-        [...activeScreen().querySelectorAll('button, a, [role=button]')].find(b => /^done$/i.test(txt(b)) && b.getClientRects().length);
+      const done = doneButton();
       const close = done || [/^(dismiss dialog|close)$/i, /^back$/i].map(re => topEls(re)[0]).find(Boolean);
       if (close) {
         if (close === done) close.scrollIntoView({ block: 'center' });
@@ -261,9 +258,18 @@
         log('  closing: Escape');
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
       }
-      for (let w = 0; w < 30 && !there(); w++) await sleep(100);
+      // Up to 3 seconds for the shelf, unless a Done turns up meanwhile (Libby's "Downloaded as
+      // EPUB" screen can arrive just after): then press that straight away.
+      for (let w = 0; w < 30 && !there() && (close === done || !doneButton()); w++) await sleep(100);
     }
     return there();
+  }
+
+  // Libby's Done (after a download, "Downloaded as EPUB") often sits at the bottom, under the
+  // footer: found on the current screen even so.
+  function doneButton() {
+    return topEls(/^done$/i)[0] ||
+      [...activeScreen().querySelectorAll('button, a, [role=button]')].find(b => /^done$/i.test(txt(b)) && b.getClientRects().length);
   }
 
   // The open Manage Loan sheet labels its book "Book: <title>, by <author>" (shelf cards say
@@ -1201,6 +1207,9 @@
             continue;
           }
           log(`  download started after ${((Date.now() - since) / 1000).toFixed(1)}s`);
+          // Libby's "Downloaded as EPUB" screen usually follows a moment later: wait for it, so
+          // leaving goes straight through its Done.
+          for (const t = activeNow(); activeNow() - t < 2500 && !doneButton(); ) await sleep(100);
           note(loan, format, true);
           await countDownload();
           await checkRateLimit();
