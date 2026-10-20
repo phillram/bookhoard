@@ -36,8 +36,8 @@ Firefox removes it when you close the browser, so you'll need to do this again n
 
 1. Open your loans at [libbyapp.com/shelf/loans](https://libbyapp.com/shelf/loans).
 2. Click **Download** at the bottom.
-3. Tick the books you want, then click **Download**. Books you haven't downloaded yet are already
-   ticked.
+3. Check the books you want, then click **Download**. Books you haven't downloaded yet are already
+   checked.
 4. If your browser asks about downloading several files, click **Allow**.
 
 ![The Download list with a checkbox for each book](docs/download.png)
@@ -53,9 +53,9 @@ book itself. A few come as a plain `.epub` or `.pdf`, ready to read.
 ## Return your books
 
 1. Click **Return** at the bottom.
-2. Tick the books to send back, then click **Return**.
+2. Check the books to send back, then click **Return**.
 
-Books you haven't downloaded yet start unticked, so you don't return one by accident.
+Books you haven't downloaded yet start unchecked, so you don't return one by accident.
 
 ![The Return list with a checkbox for each book](docs/return.png)
 
@@ -63,7 +63,7 @@ Books you haven't downloaded yet start unticked, so you don't return one by acci
 
 1. Open a book that's part of a series, or the series itself.
 2. Click **Borrow** at the bottom. On a book's page, bookhoard opens its series first.
-3. Tick the books you want, then click **Borrow**. Books with a waitlist get a hold instead.
+3. Check the books you want, then click **Borrow**. Books with a waitlist get a hold instead.
 
 bookhoard uses whichever of your libraries has a copy now. If a library card needs verifying, it
 tries your other libraries instead. If none of them can lend the book, it skips it and says so;
@@ -89,7 +89,7 @@ saved, and which format to get.
   other tabs meanwhile.
 - After updating bookhoard, reload your Libby tab.
 - bookhoard remembers what it has downloaded, even after you move the files, so those books start
-  unticked next time.
+  unchecked next time.
 
 ## Something not working?
 

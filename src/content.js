@@ -608,7 +608,7 @@
       const ticked = () => boxes.filter(r => r.box.checked).map(r => r.loan);
       onPickChange = () => {
         const k = ticked().length;
-        ui.pickCount.textContent = `${k} of ${rows.length} ticked`;
+        ui.pickCount.textContent = `${k} of ${rows.length} checked`;
         choices = [{ label: action.label(k), value: 'go', danger: action.danger, disabled: !k },
                    { label: 'Cancel', value: null }];
         render('');
@@ -926,10 +926,10 @@
           loan, ticked: fresh({ loan }),
           tag: audio(loan) ? 'audiobook' : done.has(loan.id) ? 'downloaded' : '', muted: true,
         }));
-        let question = 'Tick the books to download.';
+        let question = 'Check the books to download.';
         if (done.size) {
           question += `\n${done.size} ${done.size === 1 ? 'was' : 'were'} downloaded before, so ` +
-            `${done.size === 1 ? 'it starts' : 'they start'} unticked.`;
+            `${done.size === 1 ? 'it starts' : 'they start'} unchecked.`;
         }
         todo = await askPick(question, rows,
           [{ id: 'all', label: 'All', pick: () => true },
@@ -1137,10 +1137,10 @@
       }
       log(`return: ${loans.length} loans, ${notDownloaded.length} not downloaded in this browser`);
       // Every loan, ticked or not, so nothing goes back by surprise.
-      let question = "Tick the books to return. This can't be undone: you'd have to borrow them again.";
+      let question = "Check the books to return. This can't be undone: you'd have to borrow them again.";
       if (notDownloaded.length) {
         question += `\n${notDownloaded.length} ${notDownloaded.length === 1 ? "isn't" : "aren't"} downloaded in ` +
-          'this browser, so they start unticked.';
+          'this browser, so they start unchecked.';
       }
       const nd = new Set(notDownloaded.map(l => l.id));
       const todo = await askPick(question,
@@ -1334,9 +1334,9 @@
       await sleep(1000);
       return null;
     }
-    const library = label(pick).replace(/^.*? at /, '');
     pick.scrollIntoView({ block: 'center' });
     await sleep(400);
+    const library = txt(pick).replace(/^.*?\bat\s+/, '');
     pick.click();
     await sleep(2000);
     return { library, hold: !now };
@@ -1389,22 +1389,37 @@
       if (!confirm) return { result: "Libby's borrow screen didn't show a Borrow button" };
       const what = pressBorrow(confirm);
       log(`  confirming: ${what}${switched ? ` (at ${switched.library})` : ''}`);
-      // Done when Libby shows Keep Browsing; it may ask to verify the card instead, or say why not.
+      // Done when Libby shows Keep Browsing or "Borrowed until ..." / a placed hold. It may ask to
+      // verify the card instead, or say why not. When you held the book on other cards, Libby
+      // offers to cancel those holds ("Cancel Other Holds"): yes, that's what you want.
+      const outcome = () => txt(document.querySelector('.screen-title-circ-outcome'));
+      const succeeded = () => /^(borrowed until|you('| ha)ve borrowed|hold placed|you('| a)re on the (wait ?list|hold))/i.test(outcome());
+      const offer = () => topEls(/^cancel other holds$/i)[0];
       let done = null;
-      for (const t = activeNow(); activeNow() - t < 15000 && !done && !verify() && !onAccountScreen(); await sleep(200)) {
+      for (const t = activeNow(); activeNow() - t < 15000 && !done && !offer() && !verify() && !onAccountScreen(); await sleep(200)) {
         done = topEls(/^keep browsing$/i)[0];
       }
       if (verify()) { log('  Libby asked to verify the card after Borrow'); continue; }
       interruptible = false;  // under way: see it through
-      const outcome = txt(document.querySelector('.screen-title-circ-outcome'));
-      if (!done) {
-        log('  no Keep Browsing. Screen shows:', onScreen(), outcome);
-        return { result: outcome || 'Libby did not confirm it', limit: /limit|maximum|too many/i.test(outcome) };
+      let holdsCancelled = false;
+      if (offer()) {
+        if (!new RegExp(`/${book.titleId}/request`).test(location.pathname)) throw new Error('refused: that offer is not for this book');
+        log(`  Libby offers to cancel your other holds on it: ${txt(offer())}`);
+        offer().click();
+        holdsCancelled = true;
+        for (const t = activeNow(); activeNow() - t < 10000 && offer(); ) await sleep(200);
+        await sleep(800);
+        done = topEls(/^keep browsing$/i)[0];
       }
-      press(done);
+      if (!done && !succeeded() && !holdsCancelled) {
+        log('  no Keep Browsing. Screen shows:', onScreen(), outcome());
+        return { result: outcome() || 'Libby did not confirm it', limit: /limit|maximum|too many/i.test(outcome()) };
+      }
+      if (done) press(done);
       await sleep(800);
       const at = switched ? ` (${switched.library})` : '';
-      return { ok: true, result: (/hold/i.test(what) ? 'hold placed' : 'borrowed') + at };
+      return { ok: true, holdsCancelled, result: (/hold/i.test(what) ? 'hold placed' : 'borrowed') + at +
+        (holdsCancelled ? ', other holds cancelled' : '') };
     }
     return { skip: `needs your ${tried[0] || 'library'} card verified` };
   }
@@ -1510,7 +1525,7 @@
       log(`${book.title} [${book.titleId}]: ${result}`);
       results.push({ title: book.title, result, ok });
       if (ok && /^already/.test(result)) had++;
-      else if (ok && /hold/.test(result)) held++;
+      else if (ok && /^hold/.test(result)) held++;
       else if (ok) borrowed++;
       render(stopRequested ? `Stopping… ${count()}` : paused ? `Pausing after this book… ${count()}` : `Borrowing… ${count()}`);
     };
@@ -1537,7 +1552,7 @@
       const label = { hold: 'waitlist: places a hold', loaned: 'on your shelf', held: 'on hold', heldNow: 'on hold: borrow now' };
       const want = b => b.state === 'borrow' || b.state === 'hold' || b.state === 'heldNow';
       const holds = books.filter(b => b.state === 'hold').length;
-      let question = 'Tick the books to borrow.';
+      let question = 'Check the books to borrow.';
       if (holds) question += `\n${holds} ${holds === 1 ? 'has' : 'have'} a waitlist, so ${holds === 1 ? 'it gets' : 'they get'} a hold instead.`;
       const todo = await askPick(question,
         books.map(b => ({ loan: b, ticked: want(b), tag: label[b.state] || '', muted: b.state !== 'hold' })),
@@ -1586,7 +1601,8 @@
           }
           note(book, r.ok ? r.result : `not borrowed: ${r.result}`, !!r.ok);
           failedInARow = r.ok ? 0 : failedInARow + 1;
-          if (r.ok && book.state === 'heldNow' && /^borrowed/.test(r.result)) heldBorrowed.push(book);
+          if (r.holdsCancelled) dropped++;
+          else if (r.ok && book.state === 'heldNow' && /^borrowed/.test(r.result)) heldBorrowed.push(book);
           if (r.limit) { ending = `Libby says: ${r.result}`; break; }
         } catch (err) {
           if (err instanceof StopNow) { ending = 'Stopped.'; break; }
