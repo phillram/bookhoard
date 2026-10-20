@@ -1399,10 +1399,14 @@
           'this browser, so they start unchecked.';
       }
       const nd = new Set(notDownloaded.map(l => l.id));
+      // Books read online only (Media Do, Libby's reader) are labeled so, with a quick button each.
+      await learnReadOnline();
       const todo = await askPick(question,
-        loans.map(loan => ({ loan, ticked: !nd.has(loan.id), tag: nd.has(loan.id) ? 'not downloaded' : '' })),
+        loans.map(loan => ({ loan, ticked: !nd.has(loan.id), tag: readerKind(loan) || (nd.has(loan.id) ? 'not downloaded' : '') })),
         [{ id: 'all', label: 'All', pick: () => true },
          { id: 'downloaded', label: 'Downloaded', pick: r => !nd.has(r.loan.id) },
+         ...['Media Do', 'Libby'].filter(kind => loans.some(l => readerKind(l) === kind))
+           .map(kind => ({ id: kind.toLowerCase().replace(/\W+/g, '-'), label: kind, pick: r => readerKind(r.loan) === kind })),
          { id: 'none', label: 'None', pick: () => false }],
         { label: k => `Return ${k}`, danger: true });
       if (!todo) { cancelled = true; return; }
@@ -1529,6 +1533,25 @@
     });
   });
 
+  // Looks up the shelf's books not looked up yet (a few at a time): their formats tell if they can
+  // only be read online. For the lists that offer those as a group (Open in reader, Return).
+  async function learnReadOnline() {
+    const unknown = readShelf().filter(l => !READER_BUTTON.test(l.main) && !/audiobook/i.test(l.main) && !noFileKnown[l.titleId]);
+    if (unknown.length) render('Checking which books can only be read online…');
+    const learned = {};
+    for (let k = 0; k < unknown.length; k += 6) {
+      await Promise.all(unknown.slice(k, k + 6).map(async l => {
+        const d = await ask({ type: 'media', overdriveId: l.titleId });
+        if (d?.formats?.length && !d.formats.some(f => /^ebook-(epub|pdf)/.test(f))) learned[l.titleId] = { f: d.formats, t: Date.now() };
+      }));
+    }
+    if (Object.keys(learned).length) {
+      const { noFile: kept = {} } = await api.storage.local.get('noFile');
+      noFileKnown = Object.fromEntries(Object.entries({ ...kept, ...learned }).sort((a, b) => b[1].t - a[1].t).slice(0, 1000));
+      await api.storage.local.set({ noFile: noFileKnown });
+    }
+  }
+
   // Returns null when its tab opened, or why not.
   async function openInReader(loan) {
     const buttons = [...document.querySelectorAll(`a[href$="/shelf/loans/${CSS.escape(loan.id)}/return"]`)]
@@ -1610,21 +1633,7 @@
         ok = false;
         return;
       }
-      // Books not looked up yet: their formats tell if Libby's own reader is the only way.
-      const unknown = readShelf().filter(l => !READER_BUTTON.test(l.main) && !/audiobook/i.test(l.main) && !noFileKnown[l.titleId]);
-      if (unknown.length) render('Checking which books can only be read online…');
-      const learned = {};
-      for (let k = 0; k < unknown.length; k += 6) {
-        await Promise.all(unknown.slice(k, k + 6).map(async l => {
-          const d = await ask({ type: 'media', overdriveId: l.titleId });
-          if (d?.formats?.length && !d.formats.some(f => /^ebook-(epub|pdf)/.test(f))) learned[l.titleId] = { f: d.formats, t: Date.now() };
-        }));
-      }
-      if (Object.keys(learned).length) {
-        const { noFile: kept = {} } = await api.storage.local.get('noFile');
-        noFileKnown = Object.fromEntries(Object.entries({ ...kept, ...learned }).sort((a, b) => b[1].t - a[1].t).slice(0, 1000));
-        await api.storage.local.set({ noFile: noFileKnown });
-      }
+      await learnReadOnline();
       // By title, volumes in number order (Volume 2 before Volume 10), and the tabs open that way.
       const loans = readerLoans().sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' }));
       readerTabs = 0;

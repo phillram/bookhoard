@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "bookhoard",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "description": "Download all your Libby loans at once, with file names you choose.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA18IJyDMnLY6MlwEKylmaF+2LpCK0U9Gdz9FVQmryA8+62C+9J4ELo6zuIVIgv2coWS997JQx1bp7OygaXjopJ04b19FxZACEc0Tbhyr5JccAQanR60qq+Fswofe/DsEzjdhBF6xsYMvZZ2L2UIZD+lGce48g0m4rTiMnlEw0yGcw3GCi6sx5JN8PAYurwvGx+cH8VUedi9Yq8G+ahlfib08+RODMWE3wDjcURVWjLhPc8ER178tgqUkzPNB4RaiU6NSkMF/nsPRcSsyuCIuD6NLlnSQK1nVB+gph0p3puIMc9xgYuRvG8J3M69lN71nbPFf2ZGjuZQqonxaxBbxUNQIDAQAB",
   "homepage_url": "https://github.com/phillram/bookhoard",

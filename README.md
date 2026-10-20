@@ -61,7 +61,8 @@ book itself. A few come as a plain `.epub` or `.pdf`, ready to read.
 1. Click the bookhoard button at the bottom, then **Return**.
 2. Check the books to send back, then click **Return**.
 
-Books you haven't downloaded yet start unchecked, so you don't return one by accident.
+Books you haven't downloaded yet start unchecked, so you don't return one by accident. Books you
+read online (in Media Do's reader or Libby's) have buttons of their own, to pick them all at once.
 
 ![The Return list with a checkbox for each book](docs/return.png)
 
