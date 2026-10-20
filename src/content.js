@@ -1498,10 +1498,15 @@
       checkingFormats = false;
     }
   }
+  // Every address Libby opens during the run (and just after) becomes a tab, even one that comes
+  // late: left to Libby, it would send this tab to the reader.
   let readerUrl = null;
   window.addEventListener('message', e => {
-    if (e.source === window && e.data?.bookhoard === 'reader' && typeof e.data.url === 'string' &&
-        document.documentElement.dataset.bookhoardCapture === '1') readerUrl = e.data.url;
+    if (e.source !== window || e.data?.bookhoard !== 'reader' || typeof e.data.url !== 'string' ||
+        document.documentElement.dataset.bookhoardCapture !== '1') return;
+    readerUrl = e.data.url;
+    log('  Libby opened', new URL(e.data.url).hostname);
+    ask({ type: 'openReader', url: e.data.url }).then(opened => { if (!opened) fail("reader tab didn't open:", new URL(e.data.url).hostname); });
   });
 
   // Returns null when its tab opened, or why not.
@@ -1523,7 +1528,7 @@
     press(button);
     for (const t = activeNow(); activeNow() - t < 15000 && !readerUrl; ) await sleep(200);
     if (!readerUrl) return "Libby didn't open the reader";
-    if (!(await ask({ type: 'openReader', url: readerUrl }))) return "the reader's tab didn't open";
+    await sleep(1500);  // Libby finishes up after opening it, then goes back to the shelf
     return null;
   }
 
@@ -1640,7 +1645,8 @@
       ending = 'Something went wrong: ' + err.message;
       ok = false;
     } finally {
-      delete document.documentElement.dataset.bookhoardCapture;
+      // Still caught for a while: an address Libby opens late must not take over this tab.
+      setTimeout(() => { if (!(running && mode === 'reader')) delete document.documentElement.dataset.bookhoardCapture; }, 15000);
       if (choose) choose(null);
       log('reader run finished:', cancelled ? 'cancelled' : ending, count());
       if (!/^(Done|Stopped)\./.test(ending)) ok = false;

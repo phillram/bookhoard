@@ -309,11 +309,12 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
       }
       case 'openReader': {
-        // A Media Do reader address Libby tried to open (see page-hook.js): open it in a tab of its
-        // own, in the background. Only Media Do's own https addresses.
+        // The reader address Libby tried to open during an Open in reader run (see page-hook.js):
+        // open it in a tab of its own, in the background. Only https; it comes from Libby's server
+        // and can go through another site on its way to Media Do's reader.
         let u;
         try { u = new URL(msg.url); } catch { return false; }
-        if (u.protocol !== 'https:' || !/(^|\.)mediadotech\.com$/.test(u.hostname)) return false;
+        if (u.protocol !== 'https:') return false;
         await api.tabs.create({ url: u.href, active: false, index: sender?.tab ? sender.tab.index + 1 : undefined });
         return true;
       }
