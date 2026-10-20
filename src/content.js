@@ -1762,6 +1762,8 @@
       if (/on your loans shelf/i.test(all) || onLoan.has(link?.match(/\/(\d+)\/?$/)?.[1])) state = 'loaned';
       else if (/on your holds shelf|on hold/i.test(all)) state = state === 'borrow' ? 'heldNow' : 'held';
       if (!state || !cover || !link) continue;
+      // Ebooks only: audiobooks (and magazines) aren't for bookhoard ("Audiobook: '<title>'. Cover image.").
+      if (/^(audiobook|magazine|video)/i.test(txt(cover))) continue;
       books.push({
         title: txt(cover).match(COVER)[1],
         titleId: link.match(/\/(\d+)\/?$/)[1],
@@ -1812,15 +1814,30 @@
   // doesn't show its series number, so that can't be part of it) are merged.
   // If you already have any edition, that's the one shown (so you don't borrow a second copy);
   // otherwise one you can borrow now beats a waitlisted one.
-  function dedupe(books) {
+  // One of each title (a list can show two editions of the same book): the one you have, else one
+  // you can borrow now, else a hold. Copies alike in that: the one with an EPUB or PDF, so it can
+  // be downloaded (from the catalog; else the first listed).
+  async function dedupe(books) {
     const rank = { loaned: 0, borrow: 1, heldNow: 2, hold: 3, held: 4, notified: 5, notify: 6 };
     const key = b => b.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-    const best = new Map();
+    const groups = new Map();
     for (const b of books) {
-      const was = best.get(key(b));
-      if (!was || rank[b.state] < rank[was.state]) best.set(key(b), b);
+      if (!groups.has(key(b))) groups.set(key(b), []);
+      groups.get(key(b)).push(b);
     }
-    return [...best.values()];
+    const kept = [];
+    for (const group of groups.values()) {
+      const top = Math.min(...group.map(b => rank[b.state]));
+      const alike = group.filter(b => rank[b.state] === top);
+      if (alike.length === 1) { kept.push(alike[0]); continue; }
+      const files = await Promise.all(alike.map(b => ask({ type: 'media', overdriveId: b.titleId })
+        .then(d => (d?.formats || []).some(f => /^ebook-(epub|pdf)/.test(f)), () => false)));
+      const pick = alike[Math.max(0, files.indexOf(true))];
+      log(`${pick.title}: ${alike.length} copies listed (${alike.map(b => b.titleId).join(', ')}); using ${pick.titleId}` +
+        (files.includes(true) ? (files.every(Boolean) ? '' : ', the one with an EPUB or PDF') : ', none has an EPUB or PDF'));
+      kept.push(pick);
+    }
+    return kept;
   }
 
   const libraryNameButton = () => [...document.querySelectorAll('.circ-option-library-name')].find(onTop);
@@ -2196,7 +2213,7 @@
       }
       const listPath = location.pathname;
       await loadWholeList();
-      const books = dedupe(listedBooks());
+      const books = await dedupe(listedBooks());
       if (!books.length) { ending = 'No books to borrow on this page.'; ok = false; return; }
       log(`borrow: ${books.length} books on ${listPath}`);
       const label = { hold: 'waitlist: places a hold', loaned: 'on your shelf', held: 'on hold', heldNow: 'on hold: borrow now',
@@ -2204,11 +2221,14 @@
       const want = b => b.state === 'borrow' || b.state === 'hold' || b.state === 'heldNow';
       const holds = books.filter(b => b.state === 'hold').length;
       const absent = books.filter(b => b.state === 'notify').length;
+      // Search results can be anything that matched, so nothing starts checked there.
+      const searching = /\/query-/.test(listPath) && !/\/series-/.test(listPath);
       let question = 'Check the books to borrow.';
+      if (searching) question += '\nThese are search results, so nothing starts checked.';
       if (holds) question += `\n${holds} ${holds === 1 ? 'has' : 'have'} a waitlist, so ${holds === 1 ? 'it gets' : 'they get'} a hold instead.`;
       if (absent) question += `\n${absent} ${absent === 1 ? "isn't" : "aren't"} at your libraries: check ${absent === 1 ? 'it' : 'them'} to be notified if one gets ${absent === 1 ? 'it' : 'them'}.`;
       const todo = await askPick(question,
-        books.map(b => ({ loan: b, ticked: want(b), tag: label[b.state] || '', muted: b.state !== 'hold',
+        books.map(b => ({ loan: b, ticked: !searching && want(b), tag: label[b.state] || '', muted: b.state !== 'hold',
           off: ['loaned', 'held', 'notified'].includes(b.state) })),
         // All: everything that can be done (borrow, hold, Notify Me). Notify me adds those to what's
         // checked; Available now checks only what can be borrowed right away.

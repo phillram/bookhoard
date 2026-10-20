@@ -100,6 +100,11 @@ can't be undone: you'd have to borrow the book again.
    series first.
 3. Check the books you want, then click **Borrow**. Books with a waitlist get a hold instead.
 
+Audiobooks aren't listed, and a book listed twice (two editions) is listed once: bookhoard borrows
+the copy with an EPUB or PDF, so you can download it. On a search results page nothing starts
+checked, since the results can be anything that matched; a book's series is the better place to
+start.
+
 ![The Borrow list for a series, with a checkbox for each book](docs/borrow.png)
 
 bookhoard uses whichever of your libraries has a copy now, including through Libby's partner
