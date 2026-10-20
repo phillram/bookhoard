@@ -7,11 +7,11 @@ bookhoard adds a button to the bottom of Libby in your browser. Click it to choo
 
 ![Libby's footer with the bookhoard button and its menu: Download, Return and Borrow](docs/footer.png)
 
+- **Open in reader** opens the books you can only read online, each in a new tab. It only shows when
+  you have some.
 - **Download** saves every book you've borrowed, named like `Children of Time - Adrian Tchaikovsky`.
 - **Return** sends back the books you pick.
 - **Borrow** borrows the books listed on a page, like a whole series. It only shows on those pages.
-- **Open in reader** opens the books you can only read online, each in a new tab. It only shows when
-  you have some.
 
 To have them as separate buttons instead, choose that under **Buttons in Libby** in the options.
 They're still combined into one when there isn't room for them all, like while you have a book open

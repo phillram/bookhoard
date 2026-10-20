@@ -530,7 +530,7 @@
         svg { width: 26px; height: 26px; flex: none; }
         svg path[stroke] { stroke: #e0e0e0; }
       </style><div class="menu"></div>`;
-    for (const btn of [navBtn, retBtn, borBtn, readBtn]) {
+    for (const btn of [readBtn, navBtn, retBtn, borBtn]) {
       if (!btn || btn.style.display === 'none') continue;
       const item = document.createElement('button');
       item.type = 'button';
@@ -775,7 +775,7 @@
   // appear once, in place, instead of jumping about while the page loads.
   let footerLayout = '';
   function placeNavButtons(bar) {
-    const separate = [navBtn, retBtn, borBtn, readBtn];
+    const separate = [readBtn, navBtn, retBtn, borBtn];
     // The separate buttons this page shows (Borrow and Open in reader only where they apply).
     const shown = separate.filter(b => b && b.style.display !== 'none');
     const hide = () => [...separate, hoardBtn].forEach(b => { if (b) b.style.visibility = 'hidden'; });
@@ -1595,7 +1595,10 @@
       }
       const todo = await askPick('Check the books to open, each in a tab of its own: Media Do books in its reader, the others in Libby\'s.',
         loans.map(loan => ({ loan, ticked: true, tag: readerKind(loan) })),
+        // A quick button for each kind you have.
         [{ id: 'all', label: 'All', pick: () => true },
+         ...['Media Do', 'Libby'].filter(kind => loans.some(l => readerKind(l) === kind))
+           .map(kind => ({ id: kind.toLowerCase().replace(/\W+/g, '-'), label: kind, pick: r => readerKind(r.loan) === kind })),
          { id: 'none', label: 'None', pick: () => false }],
         { label: k => `Open ${k}`, danger: false });
       if (!todo) { cancelled = true; return; }
