@@ -1124,6 +1124,24 @@
         // Books with no file to download in the chosen formats (only Media Do, Kindle, ...): from
         // an earlier run's catalog lookup, or the card's "Read With Media Do".
         const { noFile = {} } = await api.storage.local.get('noFile');
+        // Books not known yet (a card saying just "Read With…" can be Kindle-only): look them up
+        // now, a few at a time, so the list is right the first time. Lookups are cached for the run.
+        const unknown = loans.filter(l => !done.has(l.id) && !audio(l) && !/^read with media do$/i.test(l.main) && !noFile[l.titleId]);
+        if (unknown.length) render('Checking which books can be downloaded…');
+        const learned = {};
+        for (let k = 0; k < unknown.length; k += 6) {
+          await Promise.all(unknown.slice(k, k + 6).map(async l => {
+            const d = await ask({ type: 'media', overdriveId: l.titleId });
+            if (!d?.formats?.length) return;  // (lookup failed: it stays checked, and the run decides)
+            noFile[l.titleId] = { f: d.formats, t: Date.now() };
+            if (!d.formats.some(f => /^ebook-(epub|pdf)/.test(f))) learned[l.titleId] = noFile[l.titleId];
+          }));
+        }
+        if (Object.keys(learned).length) {
+          const { noFile: kept = {} } = await api.storage.local.get('noFile');
+          const all = Object.entries({ ...kept, ...learned }).sort((a, b) => b[1].t - a[1].t).slice(0, 1000);
+          await api.storage.local.set({ noFile: Object.fromEntries(all) });
+        }
         const fileless = loan => /^read with media do$/i.test(loan.main) ||
           (!!noFile[loan.titleId]?.f && !noFile[loan.titleId].f.some(f => order.some(o => f.startsWith('ebook-' + o.toLowerCase()))));
         const none = new Set(loans.filter(l => !done.has(l.id) && !audio(l) && fileless(l)).map(l => l.id));
