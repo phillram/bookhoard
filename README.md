@@ -69,7 +69,8 @@ Books you haven't downloaded yet start unchecked, so you don't return one by acc
 
 bookhoard uses whichever of your libraries has a copy now. If a library card needs verifying, or
 is at its loan limit, it tries your other libraries instead. If none of them can lend the book, it skips it and says so;
-verify the card in Libby and run Borrow again for the rest.
+verify the card in Libby and run Borrow again for the rest. It also borrows through Libby's partner
+libraries (the "lending partnership" screen).
 
 If Libby says a book couldn't be borrowed, bookhoard shows Libby's message beside it. Libby sometimes
 stops one card from borrowing for a while after a lot of borrowing and returning ("You appear to have

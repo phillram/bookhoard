@@ -13,14 +13,15 @@
   const api = globalThis.browser ?? globalThis.chrome;
   // Libby only redraws while its tab is showing: in a background tab browsers slow timers right
   // down and Libby's sheets don't open. So a run waits while the tab is hidden and carries on when
-  // it's back, and the step timers (activeNow) don't count the hidden time.
+  // it's back, and the step timers (activeNow) don't count the hidden time, or time spent paused.
   let hiddenSince = document.hidden ? Date.now() : 0;
   let hiddenTotal = 0;
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) hiddenSince = Date.now();
     else if (hiddenSince) { hiddenTotal += Date.now() - hiddenSince; hiddenSince = 0; }
   });
-  const activeNow = () => Date.now() - hiddenTotal - (hiddenSince ? Date.now() - hiddenSince : 0);
+  let pausedTotal = 0;
+  const activeNow = () => Date.now() - hiddenTotal - pausedTotal - (hiddenSince ? Date.now() - hiddenSince : 0);
   const shown = () => new Promise(resolve => {
     const check = () => {
       if (document.hidden) return;
@@ -31,7 +32,7 @@
     check();
   });
 
-  // During a book's steps, Stop takes effect at the next wait (within a fraction of a second).
+  // During a book's steps, Stop and Pause take effect at the next wait (within a fraction of a second).
   class StopNow extends Error {}
   let interruptible = false;
   let waitingForTab = false;
@@ -46,6 +47,11 @@
       } else {
         await shown();
       }
+    }
+    if (interruptible && paused && !stopRequested) {
+      const from = Date.now();
+      while (paused && !stopRequested) await new Promise(r => setTimeout(r, 200));
+      pausedTotal += Date.now() - from;
     }
     if (interruptible && stopRequested) reject(new StopNow('stopped'));
     else resolve();
@@ -421,7 +427,7 @@
     if (!running) return;
     paused = !paused;
     log(paused ? 'paused' : 'resumed');
-    render(paused ? 'Pausing after this book…' : 'Resuming…');
+    render(paused ? 'Paused.' : 'Resuming…');
   }
 
   function buildPanel() {
@@ -843,7 +849,7 @@
       results.push({ title: loan.title, result, ok });
       if (ok) downloaded++;
       render(stopRequested ? `Stopping… ${count()}`
-        : paused ? `Pausing after this book… ${count()}` : `Working… ${count()}`);
+        : paused ? `Paused. ${count()}` : `Working… ${count()}`);
     };
     render('Starting…');
     let ending = 'Done.';
@@ -1131,7 +1137,7 @@
       results.push({ title: loan.title, result, ok });
       if (ok) returned++;
       render(stopRequested ? `Stopping… ${count()}`
-        : paused ? `Pausing after this book… ${count()}` : `Returning… ${count()}`);
+        : paused ? `Paused. ${count()}` : `Returning… ${count()}`);
     };
     render('Looking at your loans…');
     let ending = 'Done.';
@@ -1387,8 +1393,20 @@
     // ask to verify the card only after Borrow is pressed ("verify your library card").
     const confirmButton = () => [...document.querySelectorAll('.circ-confirm-button')].find(b => onTop(b) && BORROW_BUTTON.test(txt(b)));
     const verify = () => topEls(/^verify card$/i)[0] || topEls(/verify your library card/i)[0];
+    // A partner library's notice ("This title is available at NOBLE... You can borrow it with your
+    // Boston Public Library card!") comes before its borrow screen: its Continue goes on to it.
+    const partnerContinue = () => topEls(/lending partnership with|you can borrow it with your/i)[0] &&
+      [...document.querySelectorAll('button, a, [role=button]')].find(b => /^continue$/i.test(txt(b)) && onTop(b));
     const settle = async ms => {
-      for (const t = activeNow(); activeNow() - t < ms && !confirmButton() && !verify() && !onAccountScreen(); ) await sleep(200);
+      for (const t = activeNow(); activeNow() - t < ms && !confirmButton() && !verify() && !onAccountScreen(); ) {
+        const go = partnerContinue();
+        if (go) {
+          log('  Libby says a partner library lends it; pressing Continue');
+          press(go);
+          await sleep(1200);
+        }
+        await sleep(200);
+      }
     };
     await settle(10000);
     let switched = null;
@@ -1481,11 +1499,11 @@
       log(`  Libby says: ${outcome() || '(nothing)'}`);
       if (problem()) {
         const why = problem();
-        log(`  not done: ${why}. Screen shows:`, onScreen());
+        log(`  not done: ${why.replace(/\.$/, '')}. Screen shows:`, onScreen());
         if (CARD_REFUSED.test(why) && pressedAt && !refusedCards.has(pressedAt)) {
           // That card is refused, not the book: try it again at your other libraries.
           refusedCards.set(pressedAt, /limit/i.test(why) ? 'loan limit reached' : 'Libby is refusing borrows on this card for now');
-          return { retry: `${pressedAt}: ${why}` };
+          return { retry: `Libby refused your card at ${pressedAt}` };
         }
         return { result: why, limit: /limit|maximum|too many/i.test(why) };
       }
@@ -1648,7 +1666,7 @@
       else if (ok && /^notify me/.test(result)) notified++;
       else if (ok && /^hold/.test(result)) held++;
       else if (ok) borrowed++;
-      render(stopRequested ? `Stopping… ${count()}` : paused ? `Pausing after this book… ${count()}` : `Borrowing… ${count()}`);
+      render(stopRequested ? `Stopping… ${count()}` : paused ? `Paused. ${count()}` : `Borrowing… ${count()}`);
     };
     render('Looking at the books on this page…');
     let ending = 'Done.';
