@@ -1333,7 +1333,8 @@
   // On Libby's borrow screen, open its "compare availability" list and switch to another library:
   // one with a copy now, or (holdOk) failing that one that owns the book, for a hold there.
   // Returns { library, hold } or null (the list is closed again).
-  async function chooseAnotherLibrary(holdOk, avoid = []) {
+  // noBorrow: libraries that can't lend right now (full or refusing) but can still take a hold.
+  async function chooseAnotherLibrary(holdOk, avoid = [], noBorrow = []) {
     const name = libraryNameButton();
     if (!name) return null;
     const current = txt(name);
@@ -1346,7 +1347,7 @@
     // (textContent: rows below the fold may not have their layout text yet.)
     const label = c => c.textContent.replace(/\s+/g, ' ').trim();
     const other = c => ![current, ...avoid].some(name => label(c).endsWith(name));
-    const now = choices.find(c => other(c) && /^(\d+) of \d+ cop(y|ies) available/i.test(label(c)) &&
+    const now = choices.find(c => other(c) && !noBorrow.some(name => label(c).endsWith(name)) && /^(\d+) of \d+ cop(y|ies) available/i.test(label(c)) &&
       Number(label(c).match(/^(\d+)/)[1]) > 0);
     // For a hold: a library that owns the book, shortest wait first ("About 2 weeks wait").
     const days = c => {
@@ -1442,11 +1443,13 @@
         if (full) {
           log(`  your card at ${library} is at its ${full === 'loans' ? 'loan' : 'hold'} limit`);
           because(`${full === 'loans' ? 'loan' : 'hold'} limit reached`, library);
+          // It stays full for this run: later books don't try it for a loan.
+          if (full === 'loans') refusedCards.set(library, 'loan limit reached');
         } else {
-          log(`  Libby refused your card at ${library} earlier in this run (${refused}), so not that one`);
+          log(`  your card at ${library} can't lend this run (${refused}), so not that one`);
           because(refused, library);
         }
-        const next = await chooseAnotherLibrary(true, tried);
+        const next = await chooseAnotherLibrary(true, tried, [...refusedCards.keys()]);
         if (!next) return { skip: whyNot() };
         switched = next;
         log(`  switched to ${next.library}` + (next.hold ? ' (for a hold there)' : ', which has a copy'));
@@ -1461,7 +1464,7 @@
       }
       if (needsVerifying || (!switched && /hold/i.test(txt(confirmButton())))) {
         tried.push(txt(libraryNameButton()) || 'this library');
-        const next = await chooseAnotherLibrary(needsVerifying, tried);
+        const next = await chooseAnotherLibrary(needsVerifying, tried, [...refusedCards.keys()]);
         if (next) {
           switched = next;
           log(`  switched to ${next.library}` + (next.hold ? ' (for a hold there)' : ', which has a copy'));
