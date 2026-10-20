@@ -99,6 +99,9 @@ Some books can't be downloaded, only read online: in Media Do's reader (often ma
 
 Each opens in a tab of its own, in its reader. Books only for Kindle aren't included.
 
+If Libby won't open two in a row (it may limit how many open in a short time), bookhoard stops and
+shows Libby's message; try again in a few minutes.
+
 ## Options
 
 Click the bookhoard icon in your browser's toolbar to choose how files are named, where they're

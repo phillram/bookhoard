@@ -1526,7 +1526,16 @@
     if (!onTop(button)) return 'its Read With Media Do button is covered';
     readerUrl = null;
     press(button);
-    for (const t = activeNow(); activeNow() - t < 15000 && !readerUrl; ) await sleep(200);
+    // Libby's error screen ("Something didn't work... Try Again") means no reader is coming.
+    const refused = () => topEls(/^(something didn.t work|we encountered an unexpected problem)/i)[0] || topEls(/^try again$/i)[0];
+    for (const t = activeNow(); activeNow() - t < 15000 && !readerUrl && !refused(); ) await sleep(200);
+    if (!readerUrl && refused()) {
+      const text = (activeScreen().innerText || '').replace(/\s+/g, ' ');
+      const from = text.search(/something didn.t work/i);
+      // Up to Libby's buttons (their exact labels: "try again later" in its message isn't one).
+      const said = from < 0 ? '' : text.slice(from).split(/\b(?:Try Again|Keep Browsing|Go To Shelf|Place Hold)\b/)[0].trim();
+      return `Libby couldn't open it${said ? ` ("${said.slice(0, 200)}")` : ''}`;
+    }
     if (!readerUrl) return "Libby didn't open the reader";
     await sleep(1500);  // Libby finishes up after opening it, then goes back to the shelf
     return null;
@@ -1613,7 +1622,13 @@
       render(`Opening… ${count()}`);
       // For the whole run (a late reader address is caught too, never left to Libby).
       document.documentElement.dataset.bookhoardCapture = '1';
+      let failedInARow = 0;
       for (const loan of todo) {
+        // Libby may limit how many it opens in a short time: stop rather than keep asking.
+        if (failedInARow >= 2) {
+          ending = "Libby didn't open two books in a row, so bookhoard stopped. If it's limiting how fast books open, try again in a few minutes.";
+          break;
+        }
         if (paused && !stopRequested) {
           render(`Paused. ${count()}. Press Resume to carry on.`);
           while (paused && !stopRequested) await sleep(200);
@@ -1625,9 +1640,11 @@
           interruptible = true;
           const libby = readerKind(loan) === 'Libby';
           const problem = libby ? await openInLibby(loan) : await openInReader(loan);
+          failedInARow = problem ? failedInARow + 1 : 0;
           note(loan, problem ? `not opened: ${problem}` : `opened in ${libby ? "Libby's" : "Media Do's"} reader, in a new tab`, !problem);
         } catch (err) {
           if (err instanceof StopNow) { ending = 'Stopped.'; break; }
+          failedInARow++;
           fail(`${loan.title}:`, err);
           note(loan, 'error: ' + err.message);
         } finally {
