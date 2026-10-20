@@ -5,7 +5,7 @@ you're done. Borrow a whole series in one go.
 
 bookhoard adds buttons to the bottom of Libby in your browser:
 
-![Libby's footer with bookhoard's Download and Return buttons on the right](docs/footer.png)
+![Libby's footer with bookhoard's Download, Return and Borrow buttons on the right](docs/footer.png)
 
 - **Download** saves every book you've borrowed, named like `Children of Time - Adrian Tchaikovsky`.
 - **Return** sends back the books you pick.
@@ -64,6 +64,8 @@ Books you haven't downloaded yet start unchecked, so you don't return one by acc
 1. Open a book that's part of a series, or the series itself.
 2. Click **Borrow** at the bottom. On a book's page, bookhoard opens its series first.
 3. Check the books you want, then click **Borrow**. Books with a waitlist get a hold instead.
+
+![The Borrow list for a series, with a checkbox for each book](docs/borrow.png)
 
 bookhoard uses whichever of your libraries has a copy now. If a library card needs verifying, it
 tries your other libraries instead. If none of them can lend the book, it skips it and says so;
