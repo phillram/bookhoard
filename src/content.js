@@ -1052,7 +1052,7 @@
           return;
         }
         if (pace.count < breakAt) return;
-        log(`  taking a break: ${pace.count / perBook} books since the last one`);
+        log(`taking a break: ${pace.count / perBook} books since the last one (pause setting)`);
         await pauseFor(batchPauseMs - idle, `Taking a short break so Libby keeps the downloads coming.`);
         if (!stopRequested) await setPace({ count: 0, lastAt: pace.lastAt });
       };
