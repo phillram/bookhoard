@@ -658,38 +658,42 @@
   function placeNavButtons(bar) {
     const mine = [navBtn, retBtn, borBtn];
     const hide = () => mine.forEach(b => { if (b) b.style.visibility = 'hidden'; });
+    // Positioned first, so the measurements below are from the bar's own edge.
+    if (getComputedStyle(bar).position === 'static') bar.style.position = 'relative';
     const own = [...bar.children].filter(c => !String(c.className).includes('-bookhoard'));
     const last = own[own.length - 1];
     const step = own.length >= 2 ? last.offsetLeft - own[own.length - 2].offsetLeft : 0;
     if (!(step > 0 && last.offsetWidth > 0 && last.offsetHeight > 0)) { footerLayout = ''; hide(); return; }
     const icon = bar.querySelector('button:not([class*="-bookhoard"]) svg');
-    // With a book open, Libby shows it in the footer too (cover, title, its own buttons): that
-    // space is taken. Its visible pieces, as screen rectangles.
+    const iconWidth = icon?.getBoundingClientRect().width || 24;
+    const box = bar.getBoundingClientRect();
+    const rowTop = box.top + last.offsetTop;
+    // With a book open, Libby shows it in the footer too (cover, title, its own buttons): the row
+    // ends where that starts.
     const taken = [...document.querySelectorAll('.app-footer-now-bar *')]
       .filter(e => !e.children.length || /^(img|svg|button)$/i.test(e.tagName))
-      .map(e => e.getBoundingClientRect()).filter(r => r.width > 0 && r.height > 0);
-    const box = bar.getBoundingClientRect();
-    const slot = k => ({ left: box.left + last.offsetLeft + (k + 1) * step, top: box.top + last.offsetTop });
-    const clear = [0, 1, 2].every(k => {
-      const { left, top } = slot(k);
-      return taken.every(r => r.right <= left || r.left >= left + last.offsetWidth || r.bottom <= top || r.top >= top + last.offsetHeight);
-    });
+      .map(e => e.getBoundingClientRect())
+      .filter(r => r.width > 0 && r.height > 0 && r.bottom > rowTop && r.top < rowTop + last.offsetHeight);
+    const after = box.left + last.offsetLeft + last.offsetWidth;  // the right edge of Libby's last button
+    const limit = Math.min(innerWidth - 4, ...taken.filter(r => r.right > after).map(r => r.left - 8));
+    // Three ways to sit, best first: in the row, spaced like Libby's own buttons; in the row, closer
+    // together (beside an open book); or, with no room in the row, just above the last three buttons.
+    const squeezed = Math.min(step, (limit - after) / 3);
+    const mode = after + 3 * step <= limit ? 'row' : squeezed >= iconWidth + 12 ? 'tight' : 'above';
     const layout = [step, last.offsetLeft, last.offsetTop, last.offsetWidth, last.offsetHeight, innerWidth,
-      icon?.getBoundingClientRect().width, clear].join();
+      iconWidth, mode, mode === 'tight' ? Math.round(squeezed) : ''].join();
     if (layout !== footerLayout) { footerLayout = layout; hide(); return; }  // still settling
-    if (getComputedStyle(bar).position === 'static') bar.style.position = 'relative';
-    // On a narrow screen, or beside an open book, there is no room to the right, so sit just above
-    // the last three buttons.
-    const fits = clear && box.left + last.offsetLeft + 3 * step + last.offsetWidth <= innerWidth - 4;
     const cs = icon && getComputedStyle(icon);
     mine.forEach((btn, k) => {
       if (!btn) return;
       const below = own[own.length - 1 - k];
+      const spot = mode === 'row' ? { left: last.offsetLeft + (k + 1) * step, top: last.offsetTop, width: last.offsetWidth }
+        : mode === 'tight' ? { left: last.offsetLeft + last.offsetWidth + k * squeezed, top: last.offsetTop, width: squeezed }
+        : { left: below.offsetLeft, top: below.offsetTop - below.offsetHeight - 8, width: last.offsetWidth };
       Object.assign(btn.style, {
         position: 'absolute',
-        left: (fits ? last.offsetLeft + (k + 1) * step : below.offsetLeft) + 'px',
-        top: (fits ? last.offsetTop : below.offsetTop - below.offsetHeight - 8) + 'px',
-        width: last.offsetWidth + 'px', height: last.offsetHeight + 'px',
+        left: spot.left + 'px', top: spot.top + 'px', width: spot.width + 'px', height: last.offsetHeight + 'px',
+        overflow: mode === 'tight' ? 'hidden' : '',
         visibility: 'visible',
       });
       // Icons the same size as Libby's, whatever size it's using now.
