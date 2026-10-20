@@ -248,9 +248,19 @@
         for (let w = 0; w < 30 && !there(); w++) await sleep(100);
         continue;
       }
-      const close = [/^done$/i, /^(dismiss dialog|close)$/i, /^back$/i].map(re => topEls(re)[0]).find(Boolean);
-      if (close) press(close);
-      else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+      // Libby's Done (after a download, "Downloaded as EPUB") often sits at the bottom, under the
+      // footer: find it on the current screen even so, rather than going Back a step at a time.
+      const done = topEls(/^done$/i)[0] ||
+        [...activeScreen().querySelectorAll('button, a, [role=button]')].find(b => /^done$/i.test(txt(b)) && b.getClientRects().length);
+      const close = done || [/^(dismiss dialog|close)$/i, /^back$/i].map(re => topEls(re)[0]).find(Boolean);
+      if (close) {
+        if (close === done) close.scrollIntoView({ block: 'center' });
+        log(`  closing: ${txt(close)}`);
+        press(close);
+      } else {
+        log('  closing: Escape');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+      }
       for (let w = 0; w < 30 && !there(); w++) await sleep(100);
     }
     return there();
