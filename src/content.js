@@ -1395,12 +1395,19 @@
     const verify = () => topEls(/^verify card$/i)[0] || topEls(/verify your library card/i)[0];
     // A partner library's notice ("This title is available at NOBLE... You can borrow it with your
     // Boston Public Library card!") comes before its borrow screen: its Continue goes on to it.
-    const partnerContinue = () => topEls(/lending partnership with|you can borrow it with your/i)[0] &&
-      [...document.querySelectorAll('button, a, [role=button]')].find(b => /^continue$/i.test(txt(b)) && onTop(b));
+    // Continue is often below the fold, so it's found anywhere on the screen and scrolled to.
+    const partnerContinue = () => {
+      const screen = activeScreen();
+      if (!/lending partnership with|you can borrow it with your/i.test(screen.innerText || '')) return null;
+      return [...screen.querySelectorAll('button, a, [role=button]')].find(b => /^continue$/i.test(txt(b)) && b.getClientRects().length);
+    };
     const settle = async ms => {
       for (const t = activeNow(); activeNow() - t < ms && !confirmButton() && !verify() && !onAccountScreen(); ) {
         const go = partnerContinue();
         if (go) {
+          // Pressed even if Libby's footer covers it: it's on the screen that shows the notice.
+          go.scrollIntoView({ block: 'center' });
+          await sleep(600);
           log('  Libby says a partner library lends it; pressing Continue');
           press(go);
           await sleep(1200);
@@ -1484,7 +1491,7 @@
           // ("Something didn't work. You appear to have borrowed and returned too many titles...").
           const text = (activeScreen().innerText || '').replace(/\s+/g, ' ');
           const from = text.search(/something didn.t work|we encountered|you appear to|you('| ha)ve reached|limit/i);
-          let reason = from < 0 ? '' : text.slice(from).split(/\b(Try Again|Keep Browsing|Place Hold|Go To Shelf|If you're still unable)\b/)[0].trim();
+          let reason = from < 0 ? '' : text.slice(from).split(/\b(?:Try Again|Keep Browsing|Place Hold|Go To Shelf|If you.re still unable)/)[0].trim();
           // The heading isn't always in the screen's text (Libby can hide it), so add it back.
           if (said && !reason.toLowerCase().includes(said.toLowerCase())) reason = `${said} ${reason}`.trim();
           return (reason || 'Libby showed an error').slice(0, 300);
