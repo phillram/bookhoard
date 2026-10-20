@@ -67,8 +67,8 @@ Books you haven't downloaded yet start unchecked, so you don't return one by acc
 
 ![The Borrow list for a series, with a checkbox for each book](docs/borrow.png)
 
-bookhoard uses whichever of your libraries has a copy now. If a library card needs verifying, it
-tries your other libraries instead. If none of them can lend the book, it skips it and says so;
+bookhoard uses whichever of your libraries has a copy now. If a library card needs verifying, or
+is at its loan limit, it tries your other libraries instead. If none of them can lend the book, it skips it and says so;
 verify the card in Libby and run Borrow again for the rest.
 
 If you already had one of the books on hold and bookhoard borrows it somewhere else, it cancels

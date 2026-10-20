@@ -1388,9 +1388,31 @@
     await settle(10000);
     let switched = null;
     const tried = [];
+    // The card's count on the borrow screen ("0 / 15 loans", "1 / 15 holds"): at its limit, the
+    // card can't take this book, so another library has to.
+    const cardFull = () => {
+      const kind = /hold/i.test(txt(confirmButton())) ? 'holds' : 'loans';
+      const box = [...document.querySelectorAll('.interview-episode-confirm-borrow, .circ-option-card-details')].find(e => e.getClientRects().length);
+      // Its laid-out text ("Card: 2238527-9 0 / 10 loans"): the raw text runs the card number into
+      // the count ("2238527-90 / 10"), so a number right after a digit or dash isn't the count.
+      const m = (box?.innerText || '').replace(/\s+/g, ' ').match(new RegExp(`(?<![\\d-])(\\d+)\\s*/\\s*(\\d+)\\s*${kind}`, 'i'));
+      return m && Number(m[1]) >= Number(m[2]) ? kind : '';
+    };
     for (let attempt = 0; attempt < 6; attempt++) {
       if (onAccountScreen()) return { wait: 'Libby wants you to sign in' };
       const needsVerifying = !!verify();
+      const full = !needsVerifying && confirmButton() ? cardFull() : '';
+      if (full) {
+        const library = txt(libraryNameButton()) || 'this library';
+        log(`  your card at ${library} is at its ${full === 'loans' ? 'loan' : 'hold'} limit`);
+        tried.push(library);
+        const next = await chooseAnotherLibrary(true, tried);
+        if (!next) return { skip: `${full === 'loans' ? 'loan' : 'hold'} limit reached (${tried.join(', ')})` };
+        switched = next;
+        log(`  switched to ${next.library}` + (next.hold ? ' (for a hold there)' : ', which has a copy'));
+        await settle(5000);
+        continue;
+      }
       if (needsVerifying && !libraryNameButton()) {
         // Asked after Borrow was pressed: Libby's Back returns to the borrow screen.
         [...document.querySelectorAll('.interview-block-back-button')].find(onTop)?.click();
@@ -1666,7 +1688,6 @@
           failedInARow = r.ok ? 0 : failedInARow + 1;
           if (r.holdsCancelled) dropped++;
           else if (r.ok && book.state === 'heldNow' && /^borrowed/.test(r.result)) heldBorrowed.push(book);
-          if (r.limit) { ending = `Libby says: ${r.result}`; break; }
         } catch (err) {
           if (err instanceof StopNow) { ending = 'Stopped.'; break; }
           fail(`${book.title}:`, err);
