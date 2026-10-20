@@ -1516,12 +1516,17 @@
   // late: left to Libby, it would send this tab to the reader.
   let readerUrl = null;
   let readerTabs = 0;  // tabs opened in this run: each goes after the one before, so they stay in order
+  let readerFront = false;  // one at a time: each book's tab opens in front, to read now
+  let readerTabId = null;  // the tab of the book just opened
   window.addEventListener('message', e => {
     if (e.source !== window || e.data?.bookhoard !== 'reader' || typeof e.data.url !== 'string' ||
         document.documentElement.dataset.bookhoardCapture !== '1') return;
     readerUrl = e.data.url;
     log('  Libby opened', new URL(e.data.url).hostname);
-    ask({ type: 'openReader', url: e.data.url, at: readerTabs++ }).then(opened => { if (!opened) fail("reader tab didn't open:", new URL(e.data.url).hostname); });
+    ask({ type: 'openReader', url: e.data.url, at: readerTabs++, front: readerFront }).then(id => {
+      readerTabId = id || null;
+      if (!id) fail("reader tab didn't open:", new URL(e.data.url).hostname);
+    });
   });
 
   // Returns null when its tab opened, or why not.
@@ -1540,6 +1545,7 @@
     await sleep(400);
     if (!onTop(button)) return 'its Read With Media Do button is covered';
     readerUrl = null;
+    readerTabId = null;
     press(button);
     // Libby's error screen ("Something didn't work... Try Again") means no reader is coming.
     const refused = () => topEls(/^(something didn.t work|we encountered an unexpected problem)/i)[0] || topEls(/^try again$/i)[0];
@@ -1552,6 +1558,7 @@
       return `Libby couldn't open it${said ? ` ("${said.slice(0, 200)}")` : ''}`;
     }
     if (!readerUrl) return "Libby didn't open the reader";
+    for (const t = activeNow(); activeNow() - t < 5000 && !readerTabId; ) await sleep(100);
     await sleep(1500);  // Libby finishes up after opening it, then goes back to the shelf
     return null;
   }
@@ -1560,7 +1567,8 @@
   // in this tab. Opened at that address in a tab of its own instead; nothing here is pressed.
   async function openInLibby(loan) {
     const [card, book] = loan.id.split('-');
-    if (!(await ask({ type: 'openLibby', card, book, at: readerTabs++ }))) return "Libby's reader tab didn't open";
+    readerTabId = await ask({ type: 'openLibby', card, book, at: readerTabs++, front: readerFront });
+    if (!readerTabId) return "Libby's reader tab didn't open";
     return null;
   }
 
@@ -1620,6 +1628,8 @@
       // By title, volumes in number order (Volume 2 before Volume 10), and the tabs open that way.
       const loans = readerLoans().sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' }));
       readerTabs = 0;
+      const { settings = {} } = await api.storage.local.get('settings');
+      readerFront = (settings.readerTabs ?? 'one') !== 'all';
       if (!loans.length) {
         ending = "None of your loans are read online only (in Media Do's reader or Libby's).";
         return;
@@ -1640,7 +1650,7 @@
       // For the whole run (a late reader address is caught too, never left to Libby).
       document.documentElement.dataset.bookhoardCapture = '1';
       let failedInARow = 0;
-      for (const loan of todo) {
+      for (const [k, loan] of todo.entries()) {
         // Libby may limit how many it opens in a short time: stop rather than keep asking.
         if (failedInARow >= 2) {
           ending = "Libby didn't open two books in a row, so bookhoard stopped. If it's limiting how fast books open, try again in a few minutes.";
@@ -1656,9 +1666,19 @@
         try {
           interruptible = true;
           const libby = readerKind(loan) === 'Libby';
+          const next = todo[k + 1];
+          // One at a time: this tab may soon be in the background, so say what happens next first.
+          if (readerFront) render(`Opening ${loan.title}. Close its tab when you're done${next ? ` and ${next.title} opens next` : ''}. ${count()}`);
           const problem = libby ? await openInLibby(loan) : await openInReader(loan);
           failedInARow = problem ? failedInARow + 1 : 0;
           note(loan, problem ? `not opened: ${problem}` : `opened in ${libby ? "Libby's" : "Media Do's"} reader, in a new tab`, !problem);
+          // One at a time: the next book waits until this one's tab is closed (Stop: it doesn't open).
+          if (readerFront && !problem && next && readerTabId) {
+            render(`Reading ${loan.title}. Close its tab and ${next.title} opens next, or press Stop. ${count()}`);
+            log('  waiting for its tab to be closed');
+            while (!stopRequested && (await ask({ type: 'tabOpen', id: readerTabId }))) await sleep(500);
+            if (stopRequested) { ending = 'Stopped.'; break; }
+          }
         } catch (err) {
           if (err instanceof StopNow) { ending = 'Stopped.'; break; }
           failedInARow++;

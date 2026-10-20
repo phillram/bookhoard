@@ -12,6 +12,7 @@ export const DEFAULTS = {
   batchPause: 120,                 // ...for this many seconds (0 = never pause)
   autoClose: 5,                    // close the panel this many seconds after a run (0 = keep it open)
   footerButtons: 'combined',       // 'combined' (one bookhoard button with a menu) | 'separate'
+  readerTabs: 'one',               // Open in reader: 'one' at a time (next when its tab closes) | 'all' at once
   debug: false,                    // log every step to the console
 };
 

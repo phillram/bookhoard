@@ -296,6 +296,26 @@ api.runtime.onInstalled.addListener(async ({ reason }) => {
   }
 });
 
+// Reader tabs (Open in reader). All at once: each in the background, after the one before. One at
+// a time: in front, to read now; closing it brings back the Libby tab, where the next one opens.
+// Returns the tab's id.
+const readerTabsInFront = new Map();  // reader tab id -> the Libby tab that opened it
+async function openReaderTab(url, msg, sender) {
+  const libby = sender?.tab;
+  const tab = await api.tabs.create({
+    url, active: !!msg.front, openerTabId: libby?.id,
+    index: libby ? libby.index + 1 + (msg.front ? 0 : Number(msg.at) || 0) : undefined,
+  });
+  if (msg.front && libby) readerTabsInFront.set(tab.id, libby.id);
+  return tab.id;
+}
+api.tabs.onRemoved.addListener(tabId => {
+  const libby = readerTabsInFront.get(tabId);
+  if (libby === undefined) return;
+  readerTabsInFront.delete(tabId);
+  api.tabs.update(libby, { active: true }).catch(() => {});
+});
+
 api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     switch (msg?.type) {
@@ -315,15 +335,16 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         let u;
         try { u = new URL(msg.url); } catch { return false; }
         if (u.protocol !== 'https:') return false;
-        await api.tabs.create({ url: u.href, active: false, index: sender?.tab ? sender.tab.index + 1 + (Number(msg.at) || 0) : undefined });
-        return true;
+        return openReaderTab(u.href, msg, sender);
       }
       case 'openLibby': {
         // A book only Libby's own reader opens: Libby's address for that reader, in a tab of its own.
         if (!/^\d+$/.test(String(msg.card)) || !/^\d+$/.test(String(msg.book))) return false;
-        await api.tabs.create({ url: `https://libbyapp.com/open/loan/${msg.card}/${msg.book}`, active: false,
-          index: sender?.tab ? sender.tab.index + 1 + (Number(msg.at) || 0) : undefined });
-        return true;
+        return openReaderTab(`https://libbyapp.com/open/loan/${msg.card}/${msg.book}`, msg, sender);
+      }
+      case 'tabOpen': {
+        // Is that reader tab still open? (One at a time: the next book waits for it to close.)
+        try { await api.tabs.get(Number(msg.id)); return true; } catch { return false; }
       }
       case 'expect': {
         // The page is about to click EPUB/PDF for this book.

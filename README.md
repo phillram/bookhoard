@@ -97,7 +97,10 @@ Some books can't be downloaded, only read online: in Media Do's reader (often ma
 1. Click the bookhoard button at the bottom, then **Open in reader**.
 2. Check the books you want, then click **Open**.
 
-Each opens in a tab of its own, in its reader. Books only for Kindle aren't included.
+The first book opens in a tab of its own, in its reader. When you close that tab, you're back on
+Libby and the next one opens. Press **Stop** on the Libby tab to not open the rest. To open them all
+at once instead, choose that under **Open in reader** in the options. Books only for Kindle aren't
+included.
 
 If Libby won't open two in a row (it may limit how many open in a short time), bookhoard stops and
 shows Libby's message; try again in a few minutes.
