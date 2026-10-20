@@ -99,6 +99,7 @@ saved, and which format to get.
 - Choosing EPUB or PDF locks that loan to the format until you borrow the book again. That's
   how Libby works.
 - Audiobooks are skipped, and so are books Libby only lets you read in its app or on Kindle.
+  bookhoard remembers those, so they start unchecked next time.
 - Keep the Libby tab showing while bookhoard works. Browsers pause tabs in the background, so
   bookhoard waits and carries on when you come back. Its own window works, if you want to use
   other tabs meanwhile.

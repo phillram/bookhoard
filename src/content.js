@@ -1056,6 +1056,14 @@
         await pauseFor(batchPauseMs - idle, `Taking a short break so Libby keeps the downloads coming.`);
         if (!stopRequested) await setPace({ count: 0, lastAt: pace.lastAt });
       };
+      // A book's formats when it has none bookhoard can download, so the next list starts it
+      // unchecked: { titleId: { f: formats, t: when } }, the newest 1000.
+      const rememberFormats = async (titleId, formats) => {
+        const { noFile = {} } = await api.storage.local.get('noFile');
+        noFile[titleId] = { f: formats, t: Date.now() };
+        const keep = Object.entries(noFile).sort((a, b) => b[1].t - a[1].t).slice(0, 1000);
+        await api.storage.local.set({ noFile: Object.fromEntries(keep) });
+      };
       const countDownload = async () => {
         const pace = await getPace();
         await setPace({ count: pace.count + perBook, lastAt: Date.now() });
@@ -1075,15 +1083,26 @@
         for (const loan of loans) {
           if (await ask({ type: 'downloaded', overdriveId: loan.titleId })) done.add(loan.id);
         }
-        const fresh = r => !done.has(r.loan.id) && !audio(r.loan);
+        // Books with no file to download in the chosen formats (only Media Do, Kindle, ...): from
+        // an earlier run's catalog lookup, or the card's "Read With Media Do".
+        const { noFile = {} } = await api.storage.local.get('noFile');
+        const fileless = loan => /^read with media do$/i.test(loan.main) ||
+          (!!noFile[loan.titleId]?.f && !noFile[loan.titleId].f.some(f => order.some(o => f.startsWith('ebook-' + o.toLowerCase()))));
+        const none = new Set(loans.filter(l => !done.has(l.id) && !audio(l) && fileless(l)).map(l => l.id));
+        const fresh = r => !done.has(r.loan.id) && !audio(r.loan) && !none.has(r.loan.id);
         const rows = loans.map(loan => ({
           loan, ticked: fresh({ loan }),
-          tag: audio(loan) ? 'audiobook' : done.has(loan.id) ? 'downloaded' : '', muted: true,
+          tag: audio(loan) ? 'audiobook' : done.has(loan.id) ? 'downloaded' : none.has(loan.id) ? `no ${order.join(' or ')}` : '',
+          muted: true,
         }));
         let question = 'Check the books to download.';
         if (done.size) {
           question += `\n${done.size} ${done.size === 1 ? 'was' : 'were'} downloaded before, so ` +
             `${done.size === 1 ? 'it starts' : 'they start'} unchecked.`;
+        }
+        if (none.size) {
+          question += `\n${none.size} ${none.size === 1 ? 'has' : 'have'} no ${order.join(' or ')} (only readable in Libby or ` +
+            `on Kindle), so ${none.size === 1 ? 'it starts' : 'they start'} unchecked.`;
         }
         todo = await askPick(question, rows,
           [{ id: 'all', label: 'All', pick: () => true },
@@ -1127,6 +1146,7 @@
         log('  formats in the catalog:', details?.formats ?? '(lookup failed)');
         if (details?.formats?.length &&
             !details.formats.some(f => order.some(o => f.startsWith('ebook-' + o.toLowerCase())))) {
+          await rememberFormats(loan.titleId, details.formats);
           note(loan, `no ${order.join(' or ')}, skipped`);
           continue;
         }
