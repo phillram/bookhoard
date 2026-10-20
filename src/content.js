@@ -56,6 +56,8 @@
   const RETURN_BUTTON = /^return( early| now| (this )?(loan|title|book))?!?$/i;
   // When borrowing, only these may be clicked to borrow or place a hold.
   const BORROW_BUTTON = /^(borrow|place hold)!?$/i;
+  // A book none of your libraries has: Libby's "Notify Me" (tags it so Libby tells you if one buys it).
+  const NOTIFY_BUTTON = /^notify me$/i;
   // Libby's sign-in, backup and passkey screens live under /interview. bookhoard never acts there.
   const onAccountScreen = () => location.pathname.startsWith('/interview');
   let host = null;    // the progress panel's container
@@ -609,7 +611,7 @@
       onPickChange = () => {
         const k = ticked().length;
         ui.pickCount.textContent = `${k} of ${rows.length} checked`;
-        choices = [{ label: action.label(k), value: 'go', danger: action.danger, disabled: !k },
+        choices = [{ label: action.label(k, ticked()), value: 'go', danger: action.danger, disabled: !k },
                    { label: 'Cancel', value: null }];
         render('');
       };
@@ -1236,6 +1238,10 @@
       const all = txt(card);
       const action = buttons.find(b => BORROW_BUTTON.test(txt(b)));
       let state = !action ? '' : /^place hold/i.test(txt(action)) ? 'hold' : 'borrow';
+      // Not at any of your libraries: Notify Me, already tagged (a "Tag: 🔔" chip) or not.
+      if (!state && buttons.some(b => NOTIFY_BUTTON.test(txt(b)))) {
+        state = buttons.some(b => /^tag:\s*🔔/i.test(txt(b))) ? 'notified' : 'notify';
+      }
       if (/on your loans shelf/i.test(all) || onLoan.has(link?.match(/\/(\d+)\/?$/)?.[1])) state = 'loaned';
       else if (/on your holds shelf|on hold/i.test(all)) state = state === 'borrow' ? 'heldNow' : 'held';
       if (!state || !cover || !link) continue;
@@ -1264,7 +1270,8 @@
     // Libby's Borrow on a card may be a button or a link (to the borrow screen).
     let n = 0;
     for (const b of activeScreen().querySelectorAll('.title-tile-shell :is(a, button, [role=button])')) {
-      if (BORROW_BUTTON.test(b.textContent.replace(/\s+/g, ' ').trim()) && ++n >= 2) return true;
+      const t = b.textContent.replace(/\s+/g, ' ').trim();
+      if ((BORROW_BUTTON.test(t) || NOTIFY_BUTTON.test(t)) && ++n >= 2) return true;
     }
     return false;
   }
@@ -1289,7 +1296,7 @@
   // If you already have any edition, that's the one shown (so you don't borrow a second copy);
   // otherwise one you can borrow now beats a waitlisted one.
   function dedupe(books) {
-    const rank = { loaned: 0, borrow: 1, heldNow: 2, hold: 3, held: 4 };
+    const rank = { loaned: 0, borrow: 1, heldNow: 2, hold: 3, held: 4, notified: 5, notify: 6 };
     const key = b => b.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
     const best = new Map();
     for (const b of books) {
@@ -1493,6 +1500,33 @@
     return cancelled;
   }
 
+  // Tag a book none of your libraries has with Libby's "Smart Tag: Notify Me": the card's Notify Me,
+  // then that tag in the sheet. (The first time, Libby also shows its notification settings: Done
+  // leaves them as they are.) Done when the card shows the tag.
+  async function notifyOne(book, listPath) {
+    if (location.pathname !== listPath && !(await backToList(listPath))) return { result: 'could not get back to the list' };
+    const cardOf = () => listedBooks().find(b => b.titleId === book.titleId);
+    const before = cardOf();
+    if (!before) return { result: 'it is no longer in the list' };
+    if (before.state === 'notified') return { ok: true, result: 'notify me: already on' };
+    before.card.scrollIntoView({ block: 'center' });
+    await sleep(400);
+    const button = [...cardOf().card.querySelectorAll('button, a, [role=button]')].find(b => NOTIFY_BUTTON.test(txt(b)) && onTop(b));
+    if (!button) return { result: "its Notify Me isn't on screen" };
+    press(button);
+    const tagRow = () => [...document.querySelectorAll('button, [role=button]')].find(b => /smart tag: notify me/i.test(txt(b)) && onTop(b));
+    for (const t = activeNow(); activeNow() - t < 5000 && !tagRow(); ) await sleep(200);
+    if (!tagRow()) return { result: "Libby's Notify Me sheet didn't offer the tag" };
+    press(tagRow());
+    await sleep(1500);
+    const done = topEls(/^done$/i)[0];
+    if (done) { press(done); await sleep(1000); }
+    const close = [...document.querySelectorAll('button')].find(b => /^(dismiss dialog|close)$/i.test(txt(b)) && onTop(b));
+    if (close) { press(close); await sleep(800); }
+    for (const t = activeNow(); activeNow() - t < 4000 && cardOf()?.state !== 'notified'; ) await sleep(200);
+    return cardOf()?.state === 'notified' ? { ok: true, result: 'notify me: on' } : { result: "Libby didn't show the Notify Me tag on it" };
+  }
+
   // Back to the list page the run started on: Keep Browsing, or Libby's own Back button at the top
   // of its screens. (Never the browser's Back, which can leave Libby altogether.)
   async function backToList(listPath) {
@@ -1518,13 +1552,16 @@
     let borrowed = 0;
     let held = 0;
     let had = 0;  // already on your shelf by the time its turn came
+    let notified = 0;  // tagged Notify Me
     let dropped = 0;  // leftover holds cancelled
     const count = () => `${borrowed} borrowed, ${held} holds` + (had ? `, ${had} already yours` : '') +
+      (notified ? `, ${notified} notify me` : '') +
       (dropped ? `, ${dropped} holds cancelled` : '') + `, ${results.filter(r => !r.ok).length} not`;
     const note = (book, result, ok = false) => {
       log(`${book.title} [${book.titleId}]: ${result}`);
       results.push({ title: book.title, result, ok });
       if (ok && /^already/.test(result)) had++;
+      else if (ok && /^notify me/.test(result)) notified++;
       else if (ok && /^hold/.test(result)) held++;
       else if (ok) borrowed++;
       render(stopRequested ? `Stopping… ${count()}` : paused ? `Pausing after this book… ${count()}` : `Borrowing… ${count()}`);
@@ -1549,17 +1586,24 @@
       const books = dedupe(listedBooks());
       if (!books.length) { ending = 'No books to borrow on this page.'; ok = false; return; }
       log(`borrow: ${books.length} books on ${listPath}`);
-      const label = { hold: 'waitlist: places a hold', loaned: 'on your shelf', held: 'on hold', heldNow: 'on hold: borrow now' };
+      const label = { hold: 'waitlist: places a hold', loaned: 'on your shelf', held: 'on hold', heldNow: 'on hold: borrow now',
+        notify: 'not at your libraries', notified: 'notify me: already on' };
       const want = b => b.state === 'borrow' || b.state === 'hold' || b.state === 'heldNow';
       const holds = books.filter(b => b.state === 'hold').length;
+      const absent = books.filter(b => b.state === 'notify').length;
       let question = 'Check the books to borrow.';
       if (holds) question += `\n${holds} ${holds === 1 ? 'has' : 'have'} a waitlist, so ${holds === 1 ? 'it gets' : 'they get'} a hold instead.`;
+      if (absent) question += `\n${absent} ${absent === 1 ? "isn't" : "aren't"} at your libraries: check ${absent === 1 ? 'it' : 'them'} to be notified if one gets ${absent === 1 ? 'it' : 'them'}.`;
       const todo = await askPick(question,
         books.map(b => ({ loan: b, ticked: want(b), tag: label[b.state] || '', muted: b.state !== 'hold' })),
         [{ id: 'all', label: 'All', pick: r => want(r.loan) },
          { id: 'now', label: 'Available now', pick: r => r.loan.state === 'borrow' || r.loan.state === 'heldNow' },
+         ...(absent ? [{ id: 'notify', label: 'Notify me', pick: r => r.box.checked || r.loan.state === 'notify' }] : []),
          { id: 'none', label: 'None', pick: () => false }],
-        { label: k => `Borrow ${k}`, danger: false });
+        { label: (k, picked) => {
+          const n = picked.filter(b => b.state === 'notify').length;
+          return !n ? `Borrow ${k}` : n === k ? `Notify me for ${n}` : `Borrow ${k - n}, notify ${n}`;
+        }, danger: false });
       if (!todo) { cancelled = true; return; }
       log(`borrowing ${todo.length} of ${books.length}:`, todo.map(b => b.title));
       render(`Borrowing… ${count()}`);
@@ -1581,7 +1625,7 @@
         }
         try {
           interruptible = true;
-          const r = await borrowOne(book, listPath);
+          const r = book.state === 'notify' ? await notifyOne(book, listPath) : await borrowOne(book, listPath);
           interruptible = false;
           if (r.skip) {
             // A card needs verifying and no other library could lend it: skip it, carry on.

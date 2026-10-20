@@ -74,6 +74,9 @@ verify the card in Libby and run Borrow again for the rest.
 If you already had one of the books on hold and bookhoard borrows it somewhere else, it cancels
 that hold, so Libby doesn't lend you a second copy later.
 
+Books none of your libraries have are listed as "not at your libraries". Check them (or click
+**Notify me**) and bookhoard tags them with Libby's Notify Me, so Libby tells you if a library gets one.
+
 ## Options
 
 Click the bookhoard icon in your browser's toolbar to choose how files are named, where they're
