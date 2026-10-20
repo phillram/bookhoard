@@ -467,6 +467,8 @@
                 font-size: 13px; }
         .pick-row + .pick-row { border-top: 1px solid #2a2a2a; }
         .pick-row:hover { background: #242424; }
+        .pick-row.off { opacity: .55; cursor: default; }
+        .pick-row.off:hover { background: none; }
         .pick-row input { accent-color: #2a9d8f; margin: 0; flex: none; }
         .pick-row .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .pick-row .nd { flex: none; color: #e3b25a; font-size: 12px; }
@@ -569,7 +571,8 @@
   }
 
   // List every loan with a checkbox and wait for the action button (the ticked loans) or Cancel
-  // (null). rows: [{ loan, ticked, tag, muted }]. quick: [{ id, label, pick: row => ticked? }].
+  // (null). rows: [{ loan, ticked, tag, muted, off }] (off: nothing to do, so it can't be checked).
+  // quick: [{ id, label, pick: row => checked? }].
   function askPick(status, rows, quick, action) {
     const boxes = rows.map(r => {
       const row = document.createElement('label');
@@ -577,7 +580,9 @@
       row.title = r.loan.title;
       const box = document.createElement('input');
       box.type = 'checkbox';
-      box.checked = r.ticked;
+      box.checked = r.ticked && !r.off;
+      box.disabled = !!r.off;
+      if (r.off) row.classList.add('off');
       const t = document.createElement('span');
       t.className = 't';
       t.textContent = r.loan.title;
@@ -598,7 +603,7 @@
       b.textContent = q.label;
       b.dataset.pick = q.id;
       b.addEventListener('click', () => {
-        for (const r of boxes) r.box.checked = q.pick(r);
+        for (const r of boxes) r.box.checked = !r.off && q.pick(r);
         onPickChange?.();
       });
       return b;
@@ -1606,7 +1611,8 @@
       if (holds) question += `\n${holds} ${holds === 1 ? 'has' : 'have'} a waitlist, so ${holds === 1 ? 'it gets' : 'they get'} a hold instead.`;
       if (absent) question += `\n${absent} ${absent === 1 ? "isn't" : "aren't"} at your libraries: check ${absent === 1 ? 'it' : 'them'} to be notified if one gets ${absent === 1 ? 'it' : 'them'}.`;
       const todo = await askPick(question,
-        books.map(b => ({ loan: b, ticked: want(b), tag: label[b.state] || '', muted: b.state !== 'hold' })),
+        books.map(b => ({ loan: b, ticked: want(b), tag: label[b.state] || '', muted: b.state !== 'hold',
+          off: ['loaned', 'held', 'notified'].includes(b.state) })),
         [{ id: 'all', label: 'All', pick: r => want(r.loan) },
          { id: 'now', label: 'Available now', pick: r => r.loan.state === 'borrow' || r.loan.state === 'heldNow' },
          ...(absent ? [{ id: 'notify', label: 'Notify me', pick: r => r.box.checked || r.loan.state === 'notify' }] : []),
@@ -1636,7 +1642,7 @@
         }
         try {
           interruptible = true;
-          const r = book.state === 'notify' ? await notifyOne(book, listPath) : await borrowOne(book, listPath);
+          const r = book.state === 'notify' || book.state === 'notified' ? await notifyOne(book, listPath) : await borrowOne(book, listPath);
           interruptible = false;
           if (r.skip) {
             // A card needs verifying and no other library could lend it: skip it, carry on.
