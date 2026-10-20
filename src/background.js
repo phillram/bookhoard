@@ -315,14 +315,14 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         let u;
         try { u = new URL(msg.url); } catch { return false; }
         if (u.protocol !== 'https:') return false;
-        await api.tabs.create({ url: u.href, active: false, index: sender?.tab ? sender.tab.index + 1 : undefined });
+        await api.tabs.create({ url: u.href, active: false, index: sender?.tab ? sender.tab.index + 1 + (Number(msg.at) || 0) : undefined });
         return true;
       }
       case 'openLibby': {
         // A book only Libby's own reader opens: Libby's address for that reader, in a tab of its own.
         if (!/^\d+$/.test(String(msg.card)) || !/^\d+$/.test(String(msg.book))) return false;
         await api.tabs.create({ url: `https://libbyapp.com/open/loan/${msg.card}/${msg.book}`, active: false,
-          index: sender?.tab ? sender.tab.index + 1 : undefined });
+          index: sender?.tab ? sender.tab.index + 1 + (Number(msg.at) || 0) : undefined });
         return true;
       }
       case 'expect': {

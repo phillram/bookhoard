@@ -1501,12 +1501,13 @@
   // Every address Libby opens during the run (and just after) becomes a tab, even one that comes
   // late: left to Libby, it would send this tab to the reader.
   let readerUrl = null;
+  let readerTabs = 0;  // tabs opened in this run: each goes after the one before, so they stay in order
   window.addEventListener('message', e => {
     if (e.source !== window || e.data?.bookhoard !== 'reader' || typeof e.data.url !== 'string' ||
         document.documentElement.dataset.bookhoardCapture !== '1') return;
     readerUrl = e.data.url;
     log('  Libby opened', new URL(e.data.url).hostname);
-    ask({ type: 'openReader', url: e.data.url }).then(opened => { if (!opened) fail("reader tab didn't open:", new URL(e.data.url).hostname); });
+    ask({ type: 'openReader', url: e.data.url, at: readerTabs++ }).then(opened => { if (!opened) fail("reader tab didn't open:", new URL(e.data.url).hostname); });
   });
 
   // Returns null when its tab opened, or why not.
@@ -1545,7 +1546,7 @@
   // in this tab. Opened at that address in a tab of its own instead; nothing here is pressed.
   async function openInLibby(loan) {
     const [card, book] = loan.id.split('-');
-    if (!(await ask({ type: 'openLibby', card, book }))) return "Libby's reader tab didn't open";
+    if (!(await ask({ type: 'openLibby', card, book, at: readerTabs++ }))) return "Libby's reader tab didn't open";
     return null;
   }
 
@@ -1602,7 +1603,9 @@
         noFileKnown = Object.fromEntries(Object.entries({ ...kept, ...learned }).sort((a, b) => b[1].t - a[1].t).slice(0, 1000));
         await api.storage.local.set({ noFile: noFileKnown });
       }
-      const loans = readerLoans();
+      // By title, volumes in number order (Volume 2 before Volume 10), and the tabs open that way.
+      const loans = readerLoans().sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' }));
+      readerTabs = 0;
       if (!loans.length) {
         ending = "None of your loans are read online only (in Media Do's reader or Libby's).";
         return;
