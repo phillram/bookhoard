@@ -1768,6 +1768,7 @@
         title: txt(cover).match(COVER)[1],
         titleId: link.match(/\/(\d+)\/?$/)[1],
         series: txt(card.querySelector('.series-number')).match(/#(\d+)/)?.[1] || '',
+        range: (m => m && (m[1] ? [+m[1], +m[1]] : [+m[2], +m[3]]))(all.match(/(?:#(\d+)|(\d+)\s*[-\u2013]\s*(\d+))\s+in series/i)),
         state, card,
       });
     }
@@ -1814,6 +1815,43 @@
   // doesn't show its series number, so that can't be part of it) are merged.
   // If you already have any edition, that's the one shown (so you don't borrow a second copy);
   // otherwise one you can borrow now beats a waitlisted one.
+  // A series sold in overlapping editions (Saga: Volumes of 6 issues, Books of 18, a Compendium of
+  // 54): its books grouped by edition (the title without its last number), shortest edition first,
+  // each in number order. Null for a series in one edition.
+  const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+    'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
+  function editionsOf(books) {
+    const ranged = books.filter(b => b.range);
+    const overlap = ranged.some(a => ranged.some(b => a !== b && a.range[0] <= b.range[1] && b.range[0] <= a.range[1]));
+    if (!overlap) return null;
+    const last = new RegExp(`[\\s,:#-]*(\\d+|${NUMBER_WORDS.join('|')})\\s*$`, 'i');
+    const nameOf = b => b.title.replace(last, '').trim();
+    const numberOf = b => {
+      const m = b.title.match(last)?.[1];
+      return !m ? (b.range?.[0] ?? Infinity) : /^\d+$/.test(m) ? Number(m) : NUMBER_WORDS.indexOf(m.toLowerCase());
+    };
+    const groups = new Map();
+    for (const b of books) {
+      if (!groups.has(nameOf(b))) groups.set(nameOf(b), []);
+      groups.get(nameOf(b)).push(b);
+    }
+    // An edition's size: its books' usual number of issues (unknown: last).
+    const size = g => {
+      const spans = g.filter(b => b.range).map(b => b.range[1] - b.range[0] + 1).sort((x, y) => x - y);
+      return spans.length ? spans[Math.floor(spans.length / 2)] : Infinity;
+    };
+    const editions = [...groups.entries()]
+      .map(([name, g]) => ({ name, size: size(g), books: g.sort((a, b) => numberOf(a) - numberOf(b) || (a.range?.[0] ?? 0) - (b.range?.[0] ?? 0)) }))
+      .sort((a, b) => a.size - b.size);
+    // Named for the quick buttons by the edition's last word: Volumes, Books, Compendium.
+    for (const e of editions) {
+      const word = e.name.match(/([A-Za-z]+)\W*$/)?.[1] || e.name;
+      e.label = e.books.length > 1 && !/s$/i.test(word) ? word + 's' : word;
+    }
+    for (const e of editions) if (editions.filter(o => o.label === e.label).length > 1) e.label = e.name;
+    return editions;
+  }
+
   // One of each title (a list can show two editions of the same book): the one you have, else one
   // you can borrow now, else a hold. Copies alike in that: the one with an EPUB or PDF, so it can
   // be downloaded (from the catalog; else the first listed).
@@ -2213,9 +2251,16 @@
       }
       const listPath = location.pathname;
       await loadWholeList();
-      const books = await dedupe(listedBooks());
+      let books = await dedupe(listedBooks());
       if (!books.length) { ending = 'No books to borrow on this page.'; ok = false; return; }
       log(`borrow: ${books.length} books on ${listPath}`);
+      // Overlapping editions: listed shortest edition first, and only that one starts checked.
+      const editions = editionsOf(books);
+      if (editions) {
+        books = editions.flatMap(e => e.books);
+        log('editions:', editions.map(e => `${e.label} (${e.books.length}, ${e.size} issues each)`));
+      }
+      const firstEdition = editions ? new Set(editions[0].books) : null;
       const label = { hold: 'waitlist: places a hold', loaned: 'on your shelf', held: 'on hold', heldNow: 'on hold: borrow now',
         notify: 'not at your libraries', notified: 'notify me: already on' };
       const want = b => b.state === 'borrow' || b.state === 'hold' || b.state === 'heldNow';
@@ -2225,15 +2270,20 @@
       const searching = /\/query-/.test(listPath) && !/\/series-/.test(listPath);
       let question = 'Check the books to borrow.';
       if (searching) question += '\nThese are search results, so nothing starts checked.';
+      else if (editions) {
+        question += `\nThis series comes in ${editions.length} editions (${editions.map(e => e.label).join(', ')}), ` +
+          `shortest first. Only the ${editions[0].label} start checked.`;
+      }
       if (holds) question += `\n${holds} ${holds === 1 ? 'has' : 'have'} a waitlist, so ${holds === 1 ? 'it gets' : 'they get'} a hold instead.`;
       if (absent) question += `\n${absent} ${absent === 1 ? "isn't" : "aren't"} at your libraries: check ${absent === 1 ? 'it' : 'them'} to be notified if one gets ${absent === 1 ? 'it' : 'them'}.`;
       const todo = await askPick(question,
-        books.map(b => ({ loan: b, ticked: !searching && want(b), tag: label[b.state] || '', muted: b.state !== 'hold',
+        books.map(b => ({ loan: b, ticked: !searching && want(b) && (!firstEdition || firstEdition.has(b)), tag: label[b.state] || '', muted: b.state !== 'hold',
           off: ['loaned', 'held', 'notified'].includes(b.state) })),
         // All: everything that can be done (borrow, hold, Notify Me). Notify me adds those to what's
         // checked; Available now checks only what can be borrowed right away.
         [{ id: 'all', label: 'All', pick: r => want(r.loan) || r.loan.state === 'notify' },
          { id: 'now', label: 'Available now', pick: r => r.loan.state === 'borrow' || r.loan.state === 'heldNow' },
+         ...(editions || []).map((e, k) => ({ id: `edition-${k}`, label: e.label, pick: r => e.books.includes(r.loan) && want(r.loan) })),
          ...(absent ? [{ id: 'notify', label: 'Notify me', pick: r => r.box.checked || r.loan.state === 'notify' }] : []),
          { id: 'none', label: 'None', pick: () => false }],
         { label: (k, picked) => {

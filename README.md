@@ -105,6 +105,11 @@ the copy with an EPUB or PDF, so you can download it. On a search results page n
 checked, since the results can be anything that matched; a book's series is the better place to
 start.
 
+Some series come in editions that overlap, like Saga's volumes (6 issues each), books (18) and
+compendium (54). Then the list groups them by edition, shortest at the top and longest at the
+bottom, each in number order. Only the shortest edition starts checked, so you don't borrow the
+same issues twice; a button for each edition (like **Volumes** or **Books**) picks that one instead.
+
 ![The Borrow list for a series, with a checkbox for each book](docs/borrow.png)
 
 bookhoard uses whichever of your libraries has a copy now, including through Libby's partner
