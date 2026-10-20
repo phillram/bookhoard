@@ -11,6 +11,9 @@ bookhoard adds buttons to the bottom of Libby in your browser:
 - **Return** sends back the books you pick.
 - **Borrow** borrows the books listed on a page, like a whole series. It only shows on those pages.
 
+When there's no room for all three, like while you have a book open in Libby or on a narrow
+window, they're combined into one **bookhoard** button. Click it to choose Download, Return or Borrow.
+
 ## Install
 
 Download the zip for your browser from the

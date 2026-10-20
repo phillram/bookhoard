@@ -70,8 +70,10 @@
   let navBtn = null;  // our footer Download button
   let retBtn = null;  // our footer Return button
   let borBtn = null;  // our footer Borrow button (only on pages that list books)
+  let hoardBtn = null;   // all three in one, when the footer has no room for three (a book open, a narrow window)
+  let hoardMenu = null;  // its menu, while open
   // (all are kept out of every search below, so a run never clicks its own controls)
-  const ours = e => e === host || !!navBtn?.contains(e) || !!retBtn?.contains(e) || !!borBtn?.contains(e);
+  const ours = e => e === host || e === hoardMenu || [navBtn, retBtn, borBtn, hoardBtn].some(b => !!b?.contains(e));
 
   // Is el what is actually on screen at its own centre (not hidden behind a sheet)?
   const onTop = el => {
@@ -402,20 +404,36 @@
       </g>
     </svg>`;
 
-  function footerButton(bar, { name, mine, label, aria, icon, start }) {
+  // A crate holding standing books: bookhoard itself, for the button that holds all three.
+  const HOARD_ICON = `
+    <svg version="1.1" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" class="shibui-graphic icon"
+         aria-hidden="true" data-decorative="">
+      <g fill="none" stroke="none">
+        <path class="color-shadow icon-solid" d="M11,36 L53,36 L53,49 C53,50.7 51.7,52 50,52 L14,52 C12.3,52 11,50.7 11,49 Z"
+              fill="#000000" fill-opacity="0.08"></path>
+        <path class="color-highlight icon-hollow" d="M10,35 L54,35 L54,49 C54,50.7 52.7,52 51,52 L13,52 C11.3,52 10,50.7 10,49 Z M24,41 L40,41"
+              stroke="#000000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path class="icon-hollow" d="M16,35 L16,17 C16,16.4 16.4,16 17,16 L22,16 C22.6,16 23,16.4 23,17 L23,35 M25,35 L25,21 C25,20.4 25.4,20 26,20 L31,20 C31.6,20 32,20.4 32,21 L32,35 M35.2,35 L40.6,15.7 C40.8,15.2 41.3,14.9 41.8,15.1 L46.6,16.4 C47.1,16.6 47.4,17.1 47.2,17.6 L42.6,35 M16,21 L23,21 M25,25 L32,25"
+              stroke="#000000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+      </g>
+    </svg>`;
+
+  function footerButton(bar, { name, mine, label, aria, icon, start, onClick }) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = `app-footer-nav-bar-button-${name} nav-icon-selectable halo`;
     btn.dataset.haloStates = 'focus';
     btn.setAttribute('aria-label', aria);
+    btn.dataset.label = label;  // what it says now (render changes it to Stop during its run)
     btn.innerHTML = icon + `<span class="app-footer-nav-label"><span role="text">${label}</span></span>`;
     // Out of Libby's row and invisible until placed (placeNavButtons), so it never pushes Libby's
     // own buttons around while the footer is still being laid out.
     Object.assign(btn.style, { position: 'absolute', visibility: 'hidden' });
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', onClick || (() => {
+      closeHoardMenu();
       if (!running) start().catch(err => fail('run failed:', err));
       else if (mode === mine) requestStop();  // the other button is dimmed and does nothing
-    });
+    }));
     bar.append(btn);
     return btn;
   }
@@ -427,7 +445,49 @@
     retBtn = footerButton(bar, { name: 'bookhoard-return', mine: 'return', label: 'Return', aria: 'Return loans (bookhoard)', icon: RETURN_ICON, start: returnAll });
     borBtn?.remove();
     borBtn = footerButton(bar, { name: 'bookhoard-borrow', mine: 'borrow', label: 'Borrow', aria: 'Borrow the books listed here (bookhoard)', icon: BORROW_ICON, start: borrowAll });
+    hoardBtn?.remove();
+    hoardBtn = footerButton(bar, { name: 'bookhoard-menu', label: 'bookhoard', aria: 'bookhoard: Download, Return, Borrow', icon: HOARD_ICON, onClick: toggleHoardMenu });
   }
+
+  // The combined button's menu: the three buttons, as they are now (a run's own one says Stop, the
+  // others are dimmed while it runs; Borrow only where it applies). Each item presses its button.
+  function closeHoardMenu() {
+    hoardMenu?.remove();
+    hoardMenu = null;
+  }
+  function toggleHoardMenu() {
+    if (hoardMenu) { closeHoardMenu(); return; }
+    hoardMenu = document.createElement('div');
+    const at = hoardBtn.getBoundingClientRect();
+    hoardMenu.style.cssText = `position:fixed;left:${Math.max(4, at.left + at.width / 2 - 90)}px;bottom:${innerHeight - at.top + 6}px;z-index:2147483647;`;
+    const root = hoardMenu.attachShadow({ mode: 'open' });
+    root.innerHTML = `<style>
+        .menu { width: 180px; background: #1c1c1c; border: 1px solid #333; border-radius: 10px; padding: 4px;
+                box-shadow: 0 4px 18px rgba(0,0,0,.5); }
+        button { display: flex; align-items: center; gap: 10px; width: 100%; background: none; border: 0; border-radius: 6px;
+                 color: #e0e0e0; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 6px 10px; cursor: pointer; text-align: left; }
+        button:hover:not(:disabled) { background: #2a2a2a; }
+        button:disabled { opacity: .45; cursor: default; }
+        svg { width: 26px; height: 26px; flex: none; }
+        svg path[stroke] { stroke: #e0e0e0; }
+      </style><div class="menu"></div>`;
+    for (const btn of [navBtn, retBtn, borBtn]) {
+      if (!btn || btn.style.display === 'none') continue;
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.append(btn.querySelector('svg').cloneNode(true), btn.dataset.label);
+      item.querySelector('svg').removeAttribute('style');
+      item.disabled = btn.style.opacity === '0.4';
+      item.addEventListener('click', () => { closeHoardMenu(); btn.click(); });
+      root.querySelector('.menu').append(item);
+    }
+    document.body.append(hoardMenu);
+  }
+  // A click anywhere else, or Escape, closes it.
+  document.addEventListener('pointerdown', e => {
+    if (hoardMenu && !e.composedPath().some(n => n === hoardMenu || n === hoardBtn)) closeHoardMenu();
+  }, true);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeHoardMenu(); }, true);
 
   function requestStop() {
     if (choose) { choose(null); return; }
@@ -585,7 +645,7 @@
         btn.insertAdjacentHTML('beforeend', '<span class="app-footer-nav-label"><span role="text"></span></span>');
         text = btn.querySelector('.app-footer-nav-label [role=text]');
       }
-      text.textContent = mine ? (choose ? 'Cancel' : 'Stop') : label;
+      text.textContent = btn.dataset.label = mine ? (choose ? 'Cancel' : 'Stop') : label;
       btn.style.opacity = running && !mine ? '0.4' : '';
     }
   }
@@ -656,8 +716,8 @@
   // appear once, in place, instead of jumping about while the page loads.
   let footerLayout = '';
   function placeNavButtons(bar) {
-    const mine = [navBtn, retBtn, borBtn];
-    const hide = () => mine.forEach(b => { if (b) b.style.visibility = 'hidden'; });
+    const three = [navBtn, retBtn, borBtn];
+    const hide = () => [...three, hoardBtn].forEach(b => { if (b) b.style.visibility = 'hidden'; });
     // Positioned first, so the measurements below are from the bar's own edge.
     if (getComputedStyle(bar).position === 'static') bar.style.position = 'relative';
     const own = [...bar.children].filter(c => !String(c.className).includes('-bookhoard'));
@@ -676,29 +736,38 @@
       .filter(r => r.width > 0 && r.height > 0 && r.bottom > rowTop && r.top < rowTop + last.offsetHeight);
     const after = box.left + last.offsetLeft + last.offsetWidth;  // the right edge of Libby's last button
     const limit = Math.min(innerWidth - 4, ...taken.filter(r => r.right > after).map(r => r.left - 8));
-    // Three ways to sit, best first: in the row, spaced like Libby's own buttons; in the row, closer
-    // together (beside an open book); or, with no room in the row, just above the last three buttons.
-    const squeezed = Math.min(step, (limit - after) / 3);
-    const mode = after + 3 * step <= limit ? 'row' : squeezed >= iconWidth + 12 ? 'tight' : 'above';
+    // The three buttons in the row, spaced like Libby's own, when they fit. Otherwise (a book open,
+    // a narrow window) the one bookhoard button holding all three: in the space left in the row, or
+    // with none, just above Libby's last button.
+    const gap = limit - after;
+    const oneWidth = Math.min(last.offsetWidth, gap);
+    const mode = after + 3 * step <= limit ? 'row' : oneWidth >= iconWidth + 8 ? 'one' : 'one-above';
     const layout = [step, last.offsetLeft, last.offsetTop, last.offsetWidth, last.offsetHeight, innerWidth,
-      iconWidth, mode, mode === 'tight' ? Math.round(squeezed) : ''].join();
+      iconWidth, mode, mode === 'one' ? Math.round(gap) : ''].join();
     if (layout !== footerLayout) { footerLayout = layout; hide(); return; }  // still settling
     const cs = icon && getComputedStyle(icon);
-    mine.forEach((btn, k) => {
-      if (!btn) return;
-      const below = own[own.length - 1 - k];
-      const spot = mode === 'row' ? { left: last.offsetLeft + (k + 1) * step, top: last.offsetTop, width: last.offsetWidth }
-        : mode === 'tight' ? { left: last.offsetLeft + last.offsetWidth + k * squeezed, top: last.offsetTop, width: squeezed }
-        : { left: below.offsetLeft, top: below.offsetTop - below.offsetHeight - 8, width: last.offsetWidth };
+    const put = (btn, left, top, width) => {
       Object.assign(btn.style, {
-        position: 'absolute',
-        left: spot.left + 'px', top: spot.top + 'px', width: spot.width + 'px', height: last.offsetHeight + 'px',
-        overflow: mode === 'tight' ? 'hidden' : '',
+        position: 'absolute', left: left + 'px', top: top + 'px', width: width + 'px', height: last.offsetHeight + 'px',
         visibility: 'visible',
       });
       // Icons the same size as Libby's, whatever size it's using now.
       if (cs) Object.assign(btn.querySelector('svg').style, { width: cs.width, height: cs.height });
-    });
+    };
+    if (mode === 'row') {
+      three.forEach((btn, k) => btn && put(btn, last.offsetLeft + (k + 1) * step, last.offsetTop, last.offsetWidth));
+      if (hoardBtn) hoardBtn.style.visibility = 'hidden';
+      closeHoardMenu();
+      return;
+    }
+    three.forEach(btn => { if (btn) btn.style.visibility = 'hidden'; });
+    if (!hoardBtn) return;
+    if (mode === 'one') {
+      // Spaced like the next button would be, or centered in a narrower space.
+      put(hoardBtn, last.offsetLeft + last.offsetWidth + Math.min(step - last.offsetWidth, (gap - oneWidth) / 2), last.offsetTop, oneWidth);
+    } else {
+      put(hoardBtn, last.offsetLeft, last.offsetTop - last.offsetHeight - 8, last.offsetWidth);
+    }
   }
 
   // A plain-text report of the last run for the Copy log button: results, the file names the
@@ -756,11 +825,13 @@
       navBtn?.remove();
       retBtn?.remove();
       borBtn?.remove();
+      hoardBtn?.remove();
+      closeHoardMenu();
       host?.remove();
       return;
     }
     const bar = document.querySelector('.app-footer-nav-bar-controls');
-    if (bar && !(navBtn && bar.contains(navBtn) && retBtn && bar.contains(retBtn) && borBtn && bar.contains(borBtn))) {
+    if (bar && ![navBtn, retBtn, borBtn, hoardBtn].every(b => b && bar.contains(b))) {
       buildNavButtons(bar);
       render('');
     }
