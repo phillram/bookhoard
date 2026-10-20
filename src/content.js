@@ -389,12 +389,9 @@
     btn.dataset.haloStates = 'focus';
     btn.setAttribute('aria-label', aria);
     btn.innerHTML = icon + `<span class="app-footer-nav-label"><span role="text">${label}</span></span>`;
-    // Size the icon like its neighbours, whatever size Libby is using right now.
-    const sibling = bar.querySelector('button:not([class*="-bookhoard"]) svg');
-    if (sibling) {
-      const cs = getComputedStyle(sibling);
-      Object.assign(btn.querySelector('svg').style, { width: cs.width, height: cs.height });
-    }
+    // Out of Libby's row and invisible until placed (placeNavButtons), so it never pushes Libby's
+    // own buttons around while the footer is still being laid out.
+    Object.assign(btn.style, { position: 'absolute', visibility: 'hidden' });
     btn.addEventListener('click', () => {
       if (!running) start().catch(err => fail('run failed:', err));
       else if (mode === mine) requestStop();  // the other button is dimmed and does nothing
@@ -438,7 +435,7 @@
     root.innerHTML = `
       <style>
         * { box-sizing: border-box; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
-        .panel { pointer-events: auto; width: min(380px, 90vw);
+        .panel { pointer-events: auto; width: min(420px, 92vw);
                  background: #1c1c1c; color: #e0e0e0; border: 1px solid #333; border-radius: 10px;
                  padding: 10px 12px; box-shadow: 0 4px 18px rgba(0,0,0,.5); }
         .status { color: #b8b8b8; margin-bottom: 6px; }
@@ -460,11 +457,11 @@
         .choices button.danger:hover { border-color: #e07070; }
         .choices button:disabled { opacity: .45; cursor: default; }
         .picker[hidden], .list[hidden] { display: none; }
-        .pick-tools { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+        .pick-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
         .pick-tools button { background: none; border: 1px solid #3a3a3a; color: #c8c8c8; border-radius: 6px;
-                font-size: 12px; padding: 2px 10px; cursor: pointer; }
+                font-size: 12px; padding: 3px 10px; cursor: pointer; white-space: nowrap; }
         .pick-tools button:hover { border-color: #2a9d8f; }
-        .pick-count { margin-left: auto; color: #8a8a8a; font-size: 12px; }
+        .pick-count { margin-left: auto; color: #8a8a8a; font-size: 12px; white-space: nowrap; }
         .pick-list { max-height: min(50vh, 420px); overflow-y: auto; border: 1px solid #2a2a2a; border-radius: 6px; }
         .pick-row { display: flex; align-items: center; gap: 8px; padding: 0 8px; height: 28px; cursor: pointer;
                 font-size: 13px; }
@@ -628,24 +625,38 @@
   }
 
   // Libby centres its five footer buttons around the Menu orb, so ours must not take up space in
-  // the row: they sit one and two steps to the right of the last button instead.
+  // the row: they sit one, two and three steps to the right of the last button instead (Download,
+  // Return, Borrow, always in those places, so Borrow coming and going moves nothing). They're
+  // shown only once Libby's footer has finished laying out and held still for a moment, so they
+  // appear once, in place, instead of jumping about while the page loads.
+  let footerLayout = '';
   function placeNavButtons(bar) {
+    const mine = [navBtn, retBtn, borBtn];
+    const hide = () => mine.forEach(b => { if (b) b.style.visibility = 'hidden'; });
     const own = [...bar.children].filter(c => !String(c.className).includes('-bookhoard'));
-    if (own.length < 2) return;
-    if (getComputedStyle(bar).position === 'static') bar.style.position = 'relative';
     const last = own[own.length - 1];
-    const step = last.offsetLeft - own[own.length - 2].offsetLeft;
-    // On a narrow screen there is no room to the right, so sit just above the last few buttons.
-    const mine = [navBtn, retBtn, borBtn].filter(b => b && b.style.display !== 'none');
-    const fits = bar.getBoundingClientRect().left + last.offsetLeft + mine.length * step + last.offsetWidth <= innerWidth - 4;
+    const step = own.length >= 2 ? last.offsetLeft - own[own.length - 2].offsetLeft : 0;
+    if (!(step > 0 && last.offsetWidth > 0 && last.offsetHeight > 0)) { footerLayout = ''; hide(); return; }
+    const icon = bar.querySelector('button:not([class*="-bookhoard"]) svg');
+    const layout = [step, last.offsetLeft, last.offsetTop, last.offsetWidth, last.offsetHeight, innerWidth,
+      icon?.getBoundingClientRect().width].join();
+    if (layout !== footerLayout) { footerLayout = layout; hide(); return; }  // still settling
+    if (getComputedStyle(bar).position === 'static') bar.style.position = 'relative';
+    // On a narrow screen there is no room to the right, so sit just above the last three buttons.
+    const fits = bar.getBoundingClientRect().left + last.offsetLeft + 3 * step + last.offsetWidth <= innerWidth - 4;
+    const cs = icon && getComputedStyle(icon);
     mine.forEach((btn, k) => {
+      if (!btn) return;
       const below = own[own.length - 1 - k];
       Object.assign(btn.style, {
         position: 'absolute',
         left: (fits ? last.offsetLeft + (k + 1) * step : below.offsetLeft) + 'px',
         top: (fits ? last.offsetTop : below.offsetTop - below.offsetHeight - 8) + 'px',
         width: last.offsetWidth + 'px', height: last.offsetHeight + 'px',
+        visibility: 'visible',
       });
+      // Icons the same size as Libby's, whatever size it's using now.
+      if (cs) Object.assign(btn.querySelector('svg').style, { width: cs.width, height: cs.height });
     });
   }
 
