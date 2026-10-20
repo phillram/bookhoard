@@ -1446,8 +1446,14 @@
         const shown = topEls(/^(something didn.t work|we encountered an unexpected problem)/i)[0] || topEls(/^try again$/i)[0];
         const said = outcome();
         if (shown || /limit|maximum|too many|unable|not able|can.t|couldn.t|unavailable|error/i.test(said)) {
+          // Libby's whole explanation: the heading and what follows it, up to its buttons
+          // ("Something didn't work. You appear to have borrowed and returned too many titles...").
           const text = (activeScreen().innerText || '').replace(/\s+/g, ' ');
-          return said || text.match(/(something didn.t work[^.]*\.[^.]*\.?|[^.]*\blimit\b[^.]*\.)/i)?.[0]?.trim() || 'Libby showed an error';
+          const from = text.search(/something didn.t work|we encountered|you appear to|you('| ha)ve reached|limit/i);
+          let reason = from < 0 ? '' : text.slice(from).split(/\b(Try Again|Keep Browsing|Place Hold|Go To Shelf|If you're still unable)\b/)[0].trim();
+          // The heading isn't always in the screen's text (Libby can hide it), so add it back.
+          if (said && !reason.toLowerCase().includes(said.toLowerCase())) reason = `${said} ${reason}`.trim();
+          return (reason || 'Libby showed an error').slice(0, 300);
         }
         return '';
       };
@@ -1459,7 +1465,7 @@
       log(`  Libby says: ${outcome() || '(nothing)'}`);
       if (problem()) {
         const why = problem();
-        log('  not done. Screen shows:', onScreen());
+        log(`  not done: ${why}. Screen shows:`, onScreen());
         return { result: why, limit: /limit|maximum|too many/i.test(why) };
       }
       if (verify()) { log('  Libby asked to verify the card after Borrow'); continue; }
@@ -1704,6 +1710,10 @@
           }
           note(book, r.ok ? r.result : `not borrowed: ${r.result}`, !!r.ok);
           failedInARow = r.ok ? 0 : failedInARow + 1;
+          if (!r.ok && /too many titles|short period|try again later/i.test(r.result)) {
+            ending = 'Libby is refusing borrows for now, so bookhoard stopped.';
+            break;
+          }
           if (r.holdsCancelled) dropped++;
           else if (r.ok && book.state === 'heldNow' && /^borrowed/.test(r.result)) heldBorrowed.push(book);
         } catch (err) {
