@@ -3,16 +3,17 @@
 Download all your Libby books at once, with proper file names. Return them all at once when
 you're done. Borrow a whole series in one go.
 
-bookhoard adds buttons to the bottom of Libby in your browser:
+bookhoard adds a button to the bottom of Libby in your browser. Click it to choose:
 
-![Libby's footer with bookhoard's Download, Return and Borrow buttons on the right](docs/footer.png)
+![Libby's footer with the bookhoard button and its menu: Download, Return and Borrow](docs/footer.png)
 
 - **Download** saves every book you've borrowed, named like `Children of Time - Adrian Tchaikovsky`.
 - **Return** sends back the books you pick.
 - **Borrow** borrows the books listed on a page, like a whole series. It only shows on those pages.
 
-When there's no room for all three, like while you have a book open in Libby or on a narrow
-window, they're combined into one **bookhoard** button. Click it to choose Download, Return or Borrow.
+To have the three as separate buttons instead, choose that under **Buttons in Libby** in the
+options. They're still combined into one when there's no room for all three, like while you have
+a book open in Libby.
 
 ## Install
 
@@ -38,7 +39,7 @@ Firefox removes it when you close the browser, so you'll need to do this again n
 ## Download your books
 
 1. Open your loans at [libbyapp.com/shelf/loans](https://libbyapp.com/shelf/loans).
-2. Click **Download** at the bottom.
+2. Click the bookhoard button at the bottom, then **Download**.
 3. Check the books you want, then click **Download**. Books you haven't downloaded yet are already
    checked.
 4. If your browser asks about downloading several files, click **Allow**.
@@ -55,7 +56,7 @@ book itself. A few come as a plain `.epub` or `.pdf`, ready to read.
 
 ## Return your books
 
-1. Click **Return** at the bottom.
+1. Click the bookhoard button at the bottom, then **Return**.
 2. Check the books to send back, then click **Return**.
 
 Books you haven't downloaded yet start unchecked, so you don't return one by accident.
@@ -65,7 +66,7 @@ Books you haven't downloaded yet start unchecked, so you don't return one by acc
 ## Borrow a series
 
 1. Open a book that's part of a series, or the series itself.
-2. Click **Borrow** at the bottom. On a book's page, bookhoard opens its series first.
+2. Click the bookhoard button at the bottom, then **Borrow**. On a book's page, bookhoard opens its series first.
 3. Check the books you want, then click **Borrow**. Books with a waitlist get a hold instead.
 
 ![The Borrow list for a series, with a checkbox for each book](docs/borrow.png)

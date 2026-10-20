@@ -162,9 +162,16 @@
     keep('ERROR ' + args.map(show).join(' '));
     console.error('[bookhoard]', ...args);
   };
-  api.storage.local.get('settings').then(({ settings }) => { debug = !!settings?.debug; });
+  // Footer buttons: one bookhoard button with a menu (the default), or the three separately.
+  let separateButtons = false;
+  const useSettings = settings => {
+    debug = !!settings?.debug;
+    const separate = settings?.footerButtons === 'separate';
+    if (separate !== separateButtons) { separateButtons = separate; footerLayout = ''; }
+  };
+  api.storage.local.get('settings').then(({ settings }) => useSettings(settings));
   api.storage.onChanged.addListener(changes => {
-    if (changes.settings) debug = !!changes.settings.newValue?.debug;
+    if (changes.settings) useSettings(changes.settings.newValue);
   });
   // What is on screen right now (for the log when a step fails).
   const onScreen = () => [...new Set([...document.querySelectorAll('button, a, [role=button]')]
@@ -736,12 +743,12 @@
       .filter(r => r.width > 0 && r.height > 0 && r.bottom > rowTop && r.top < rowTop + last.offsetHeight);
     const after = box.left + last.offsetLeft + last.offsetWidth;  // the right edge of Libby's last button
     const limit = Math.min(innerWidth - 4, ...taken.filter(r => r.right > after).map(r => r.left - 8));
-    // The three buttons in the row, spaced like Libby's own, when they fit. Otherwise (a book open,
-    // a narrow window) the one bookhoard button holding all three: in the space left in the row, or
-    // with none, just above Libby's last button.
+    // The one bookhoard button holding all three, in the row after Libby's last button (or, with no
+    // room there, just above it). With separate buttons chosen in the options: the three in the row,
+    // spaced like Libby's own, when they fit; otherwise (a book open, a narrow window) the one button.
     const gap = limit - after;
     const oneWidth = Math.min(last.offsetWidth, gap);
-    const mode = after + 3 * step <= limit ? 'row' : oneWidth >= iconWidth + 8 ? 'one' : 'one-above';
+    const mode = separateButtons && after + 3 * step <= limit ? 'row' : oneWidth >= iconWidth + 8 ? 'one' : 'one-above';
     const layout = [step, last.offsetLeft, last.offsetTop, last.offsetWidth, last.offsetHeight, innerWidth,
       iconWidth, mode, mode === 'one' ? Math.round(gap) : ''].join();
     if (layout !== footerLayout) { footerLayout = layout; hide(); return; }  // still settling
