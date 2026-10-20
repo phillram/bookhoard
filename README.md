@@ -10,6 +10,7 @@ bookhoard adds a button to the bottom of Libby in your browser. Click it to choo
 - **Download** saves every book you've borrowed, named like `Children of Time - Adrian Tchaikovsky`.
 - **Return** sends back the books you pick.
 - **Borrow** borrows the books listed on a page, like a whole series. It only shows on those pages.
+- **Open in reader** opens your Media Do books in Media Do's reader. It only shows when you have some.
 
 To have the three as separate buttons instead, choose that under **Buttons in Libby** in the
 options. They're still combined into one when there's no room for all three, like while you have
@@ -86,6 +87,16 @@ that hold, so Libby doesn't lend you a second copy later.
 
 Books none of your libraries have are listed as "not at your libraries". Check them (or click
 **Notify me**) and bookhoard tags them with Libby's Notify Me, so Libby tells you if a library gets one.
+
+## Read your Media Do books
+
+Some books (often manga) can only be read in Media Do's online reader; they say **Read With Media
+Do** on your shelf and can't be downloaded.
+
+1. Click the bookhoard button at the bottom, then **Open in reader**.
+2. Check the books you want, then click **Open**.
+
+Each opens in a tab of its own, ready to read.
 
 ## Options
 

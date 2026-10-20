@@ -70,10 +70,11 @@
   let navBtn = null;  // our footer Download button
   let retBtn = null;  // our footer Return button
   let borBtn = null;  // our footer Borrow button (only on pages that list books)
+  let readBtn = null;  // our footer Open in reader button (only when you have Media Do loans)
   let hoardBtn = null;   // all three in one, when the footer has no room for three (a book open, a narrow window)
   let hoardMenu = null;  // its menu, while open
   // (all are kept out of every search below, so a run never clicks its own controls)
-  const ours = e => e === host || e === hoardMenu || [navBtn, retBtn, borBtn, hoardBtn].some(b => !!b?.contains(e));
+  const ours = e => e === host || e === hoardMenu || [navBtn, retBtn, borBtn, readBtn, hoardBtn].some(b => !!b?.contains(e));
 
   // Is el what is actually on screen at its own centre (not hidden behind a sheet)?
   const onTop = el => {
@@ -435,6 +436,19 @@
       </g>
     </svg>`;
 
+  // An open book with an arrow out of it: reading it elsewhere (Media Do's reader, in a new tab).
+  const READER_ICON = `
+    <svg version="1.1" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" class="shibui-graphic icon"
+         aria-hidden="true" data-decorative="">
+      <g fill="none" stroke="none">
+        <path class="color-shadow icon-solid" d="M11,26 C17,23 25,23 32,27 L32,53 C25,49 17,49 11,52 Z" fill="#000000" fill-opacity="0.08"></path>
+        <path class="color-highlight icon-hollow" d="M10,25 C16,22 25,22 32,26 L32,53 C25,49 16,49 10,52 Z M54,25 C48,22 39,22 32,26 L32,53 C39,49 48,49 54,52 Z"
+              stroke="#000000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path class="icon-hollow" d="M44,9 L55,9 L55,20 M55,9 L42,22"
+              stroke="#000000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+      </g>
+    </svg>`;
+
   // A crate holding standing books: bookhoard itself, for the button that holds all three.
   const HOARD_ICON = `
     <svg version="1.1" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" class="shibui-graphic icon"
@@ -449,13 +463,14 @@
       </g>
     </svg>`;
 
-  function footerButton(bar, { name, mine, label, aria, icon, start, onClick }) {
+  function footerButton(bar, { name, mine, label, menu, aria, icon, start, onClick }) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = `app-footer-nav-bar-button-${name} nav-icon-selectable halo`;
     btn.dataset.haloStates = 'focus';
     btn.setAttribute('aria-label', aria);
     btn.dataset.label = label;  // what it says now (render changes it to Stop during its run)
+    btn.dataset.menu = menu || label;  // what the bookhoard button's menu calls it
     btn.innerHTML = icon + `<span class="app-footer-nav-label"><span role="text">${label}</span></span>`;
     // Out of Libby's row and invisible until placed (placeNavButtons), so it never pushes Libby's
     // own buttons around while the footer is still being laid out.
@@ -481,6 +496,8 @@
     retBtn = footerButton(bar, { name: 'bookhoard-return', mine: 'return', label: 'Return', aria: 'Return loans (bookhoard)', icon: RETURN_ICON, start: returnAll });
     borBtn?.remove();
     borBtn = footerButton(bar, { name: 'bookhoard-borrow', mine: 'borrow', label: 'Borrow', aria: 'Borrow the books listed here (bookhoard)', icon: BORROW_ICON, start: borrowAll });
+    readBtn?.remove();
+    readBtn = footerButton(bar, { name: 'bookhoard-reader', mine: 'reader', label: 'Reader', menu: 'Open in reader', aria: 'Open Media Do books in their reader (bookhoard)', icon: READER_ICON, start: readerAll });
     hoardBtn?.remove();
     hoardBtn = footerButton(bar, { name: 'bookhoard-menu', label: 'bookhoard', aria: 'bookhoard: Download, Return, Borrow', icon: HOARD_ICON, onClick: toggleHoardMenu });
   }
@@ -507,11 +524,11 @@
         svg { width: 26px; height: 26px; flex: none; }
         svg path[stroke] { stroke: #e0e0e0; }
       </style><div class="menu"></div>`;
-    for (const btn of [navBtn, retBtn, borBtn]) {
+    for (const btn of [navBtn, retBtn, borBtn, readBtn]) {
       if (!btn || btn.style.display === 'none') continue;
       const item = document.createElement('button');
       item.type = 'button';
-      item.append(btn.querySelector('svg').cloneNode(true), btn.dataset.label);
+      item.append(btn.querySelector('svg').cloneNode(true), /^(stop|cancel)$/i.test(btn.dataset.label) ? btn.dataset.label : btn.dataset.menu);
       item.querySelector('svg').removeAttribute('style');
       item.disabled = btn.style.opacity === '0.4';
       item.addEventListener('click', () => { closeHoardMenu(); btn.click(); });
@@ -672,7 +689,7 @@
     });
     ui.list.replaceChildren(...rows);
     // The button that started the run says Stop; the other one is dimmed until it ends.
-    for (const [btn, name, label] of [[navBtn, 'download', 'Download'], [retBtn, 'return', 'Return'], [borBtn, 'borrow', 'Borrow']]) {
+    for (const [btn, name, label] of [[navBtn, 'download', 'Download'], [retBtn, 'return', 'Return'], [borBtn, 'borrow', 'Borrow'], [readBtn, 'reader', 'Reader']]) {
       if (!btn) continue;
       const mine = running && mode === name;
       let text = btn.querySelector('.app-footer-nav-label [role=text]');
@@ -752,8 +769,10 @@
   // appear once, in place, instead of jumping about while the page loads.
   let footerLayout = '';
   function placeNavButtons(bar) {
-    const three = [navBtn, retBtn, borBtn];
-    const hide = () => [...three, hoardBtn].forEach(b => { if (b) b.style.visibility = 'hidden'; });
+    const separate = [navBtn, retBtn, borBtn, readBtn];
+    // The separate buttons this page shows (Borrow and Open in reader only where they apply).
+    const shown = separate.filter(b => b && b.style.display !== 'none');
+    const hide = () => [...separate, hoardBtn].forEach(b => { if (b) b.style.visibility = 'hidden'; });
     // Positioned first, so the measurements below are from the bar's own edge.
     if (getComputedStyle(bar).position === 'static') bar.style.position = 'relative';
     const own = [...bar.children].filter(c => !String(c.className).includes('-bookhoard'));
@@ -777,9 +796,9 @@
     // spaced like Libby's own, when they fit; otherwise (a book open, a narrow window) the one button.
     const gap = limit - after;
     const oneWidth = Math.min(last.offsetWidth, gap);
-    const mode = separateButtons && after + 3 * step <= limit ? 'row' : oneWidth >= iconWidth + 8 ? 'one' : 'one-above';
+    const mode = separateButtons && after + shown.length * step <= limit ? 'row' : oneWidth >= iconWidth + 8 ? 'one' : 'one-above';
     const layout = [step, last.offsetLeft, last.offsetTop, last.offsetWidth, last.offsetHeight, innerWidth,
-      iconWidth, mode, mode === 'one' ? Math.round(gap) : ''].join();
+      iconWidth, mode, mode === 'one' ? Math.round(gap) : '', shown.length].join();
     if (layout !== footerLayout) { footerLayout = layout; hide(); return; }  // still settling
     const cs = icon && getComputedStyle(icon);
     const put = (btn, left, top, width) => {
@@ -791,12 +810,12 @@
       if (cs) Object.assign(btn.querySelector('svg').style, { width: cs.width, height: cs.height });
     };
     if (mode === 'row') {
-      three.forEach((btn, k) => btn && put(btn, last.offsetLeft + (k + 1) * step, last.offsetTop, last.offsetWidth));
+      shown.forEach((btn, k) => put(btn, last.offsetLeft + (k + 1) * step, last.offsetTop, last.offsetWidth));
       if (hoardBtn) hoardBtn.style.visibility = 'hidden';
       closeHoardMenu();
       return;
     }
-    three.forEach(btn => { if (btn) btn.style.visibility = 'hidden'; });
+    separate.forEach(btn => { if (btn) btn.style.visibility = 'hidden'; });
     if (!hoardBtn) return;
     if (mode === 'one') {
       // Spaced like the next button would be, or centered in a narrower space.
@@ -858,7 +877,7 @@
     clearInterval(syncTimer);
     stopRequested = true;
     choose?.(null);
-    for (const b of [navBtn, retBtn, borBtn, hoardBtn]) b?.remove();
+    for (const b of [navBtn, retBtn, borBtn, readBtn, hoardBtn]) b?.remove();
     closeHoardMenu();
     host?.remove();
   }
@@ -870,7 +889,7 @@
     if (!document.body) return;
     if (!api.runtime?.id) { retire(); return; }
     const bar = document.querySelector('.app-footer-nav-bar-controls');
-    if (bar && ![navBtn, retBtn, borBtn, hoardBtn].every(b => b && bar.contains(b))) {
+    if (bar && ![navBtn, retBtn, borBtn, readBtn, hoardBtn].every(b => b && bar.contains(b))) {
       buildNavButtons(bar);
       render('');
     }
@@ -878,6 +897,11 @@
     if (borBtn) {
       const show = (running && mode === 'borrow') || (!running && listingHere());
       borBtn.style.display = show ? '' : 'none';
+    }
+    // Open in reader only shows when you have Media Do loans (and while its run is going).
+    if (readBtn) {
+      const show = (running && mode === 'reader') || (!running && readerLoans().length > 0);
+      readBtn.style.display = show ? '' : 'none';
     }
     if (navBtn && bar) placeNavButtons(bar);
     if (!host) buildPanel();
@@ -897,7 +921,7 @@
   // pointer is over it, and when something went wrong, so Copy log is at hand.
   let closeTimer = 0;
   let hovering = false;
-  const PROBLEM = /^(skipped:|error|not returned|not borrowed|not cancelled|libby couldn)|no download started/i;
+  const PROBLEM = /^(skipped:|error|not returned|not borrowed|not cancelled|not opened|libby couldn)|no download started/i;
   async function endRun(text, { cancelled = false, ok = true } = {}) {
     running = false;
     clearTimeout(closeTimer);
@@ -1402,6 +1426,138 @@
     } finally {
       if (choose) choose(null);
       log('return run finished:', cancelled ? 'cancelled' : ending, count());
+      if (!/^(Done|Stopped)\./.test(ending)) ok = false;
+      await endRun(results.length ? `${ending} ${count()}.` : ending, { cancelled, ok });
+    }
+  }
+
+  // ---- Open in reader ------------------------------------------------------------------------
+
+  // Media Do books can only be read in Media Do's online reader. This opens the ones you pick, each
+  // in a tab of its own, by pressing the card's "Read With Media Do" as you would. Libby opens the
+  // reader with window.open, which a button pressed by a script may not do (Libby would then send
+  // this tab to the reader instead), so for the run page-hook.js hands the address to bookhoard,
+  // which opens the tab.
+  const READER_BUTTON = /^read with media do$/i;
+  const readerLoans = () => readShelf().filter(l => READER_BUTTON.test(l.main));
+  let readerUrl = null;
+  window.addEventListener('message', e => {
+    if (e.source === window && e.data?.bookhoard === 'reader' && typeof e.data.url === 'string' &&
+        document.documentElement.dataset.bookhoardCapture === '1') readerUrl = e.data.url;
+  });
+
+  // Returns null when its tab opened, or why not.
+  async function openInReader(loan) {
+    const buttons = [...document.querySelectorAll(`a[href$="/shelf/loans/${CSS.escape(loan.id)}/return"]`)]
+      .map(a => {
+        let card = a;
+        while (card.parentElement && !card.querySelector('.title-tile-actions')) card = card.parentElement;
+        return [...card.querySelectorAll('.title-tile-actions button, .title-tile-actions [role=button], .title-tile-actions a')]
+          .find(b => READER_BUTTON.test(txt(b)));
+      })
+      .filter(b => b && (b.checkVisibility?.({ visibilityProperty: true, opacityProperty: true }) ?? b.getClientRects().length > 0));
+    const button = buttons[0];
+    if (!button) return 'its Read With Media Do button is not on the shelf';
+    button.scrollIntoView({ block: 'center' });
+    await sleep(400);
+    if (!onTop(button)) return 'its Read With Media Do button is covered';
+    readerUrl = null;
+    press(button);
+    for (const t = activeNow(); activeNow() - t < 15000 && !readerUrl; ) await sleep(200);
+    if (!readerUrl) return "Libby didn't open the reader";
+    if (!(await ask({ type: 'openReader', url: readerUrl }))) return "the reader's tab didn't open";
+    return null;
+  }
+
+  async function readerAll() {
+    running = true;
+    clearTimeout(closeTimer);
+    mode = 'reader';
+    panelOpen = true;
+    stopRequested = false;
+    paused = false;
+    results = [];
+    let opened = 0;
+    const count = () => `${opened} opened, ${results.length - opened} not`;
+    const note = (loan, result, ok = false) => {
+      bookDone(ok);
+      log(`${loan.title} [${loan.id}]: ${result}`);
+      results.push({ title: loan.title, result, ok });
+      if (ok) opened++;
+      render(stopRequested ? `Stopping… ${count()}`
+        : paused ? `Paused. ${count()}` : `Opening… ${count()}`);
+    };
+    render('Looking at your loans…');
+    let ending = 'Done.';
+    let cancelled = false;
+    let ok = true;
+    try {
+      // Without the page hook, Libby could send this tab to the reader: then don't press anything.
+      if (document.documentElement.dataset.bookhoardHook !== '1') {
+        ending = "bookhoard can't open the reader from this tab yet. Reload the Libby tab, then try again.";
+        ok = false;
+        return;
+      }
+      if (!readShelf().length) {
+        const why = await reachShelf();
+        if (why) { ending = why; ok = false; return; }
+      }
+      if (!(await shelfReady())) {
+        ending = 'No loans showing. Open your Libby shelf, then try again.';
+        ok = false;
+        return;
+      }
+      const loans = readerLoans();
+      if (!loans.length) {
+        ending = 'None of your loans are Media Do books (the ones that say "Read With Media Do").';
+        return;
+      }
+      const todo = await askPick("Check the books to open in Media Do's reader. Each opens in a tab of its own.",
+        loans.map(loan => ({ loan, ticked: true, tag: '' })),
+        [{ id: 'all', label: 'All', pick: () => true },
+         { id: 'none', label: 'None', pick: () => false }],
+        { label: k => `Open ${k}`, danger: false });
+      if (!todo) { cancelled = true; return; }
+      const why = await reachShelf();
+      if (why) { ending = why; ok = false; return; }
+      log(`opening ${todo.length} of ${loans.length} Media Do books:`, todo.map(l => l.title));
+      render(`Opening… ${count()}`);
+      // For the whole run (a late reader address is caught too, never left to Libby).
+      document.documentElement.dataset.bookhoardCapture = '1';
+      for (const loan of todo) {
+        if (paused && !stopRequested) {
+          render(`Paused. ${count()}. Press Resume to carry on.`);
+          while (paused && !stopRequested) await sleep(200);
+          if (!stopRequested) render(`Opening… ${count()}`);
+        }
+        if (stopRequested) { ending = 'Stopped.'; break; }
+        if (onAccountScreen()) { ending = ACCOUNT_SCREEN_STOP; fail(ending, location.pathname); break; }
+        try {
+          interruptible = true;
+          const problem = await openInReader(loan);
+          note(loan, problem ? `not opened: ${problem}` : 'opened in a new tab', !problem);
+        } catch (err) {
+          if (err instanceof StopNow) { ending = 'Stopped.'; break; }
+          fail(`${loan.title}:`, err);
+          note(loan, 'error: ' + err.message);
+        } finally {
+          interruptible = false;
+          if (!onAccountScreen() && !(await backToShelf({ emptyOk: true }))) {
+            ending = "Couldn't get back to the shelf, so bookhoard stopped.";
+            fail(ending, 'Screen shows:', onScreen());
+            break;
+          }
+        }
+        await sleep(1000);  // a moment between books, as a person would take
+      }
+    } catch (err) {
+      fail('reader run failed:', err);
+      ending = 'Something went wrong: ' + err.message;
+      ok = false;
+    } finally {
+      delete document.documentElement.dataset.bookhoardCapture;
+      if (choose) choose(null);
+      log('reader run finished:', cancelled ? 'cancelled' : ending, count());
       if (!/^(Done|Stopped)\./.test(ending)) ok = false;
       await endRun(results.length ? `${ending} ${count()}.` : ending, { cancelled, ok });
     }
