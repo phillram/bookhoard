@@ -903,9 +903,12 @@
     const { settings = {} } = await api.storage.local.get('settings');
     const seconds = Number(settings.autoClose ?? 5);
     if (!(seconds > 0)) return;
+    // The countdown runs while the Libby tab is showing: finishing while you're in another window,
+    // the panel is still there when you come back.
     const later = () => {
-      closeTimer = setTimeout(() => {
+      closeTimer = setTimeout(async () => {
         if (running) return;
+        if (document.hidden) { await shown(); return later(); }
         if (hovering) return later();
         panelOpen = false;
         results = [];
@@ -1108,7 +1111,8 @@
           [{ id: 'all', label: 'All', pick: () => true },
            { id: 'new', label: 'Not downloaded', pick: fresh },
            { id: 'none', label: 'None', pick: () => false }],
-          { label: k => `Download ${k}`, danger: false });
+          // Books downloaded before, checked again (All): say so on the button.
+          { label: (k, picked) => `Download ${k}` + (picked.some(l => done.has(l.id)) ? ` (${picked.filter(l => done.has(l.id)).length} again)` : ''), danger: false });
         if (!todo) { cancelled = true; return; }
         await api.storage.local.set({ downloadChoice: todo.map(l => l.id) });
       }
