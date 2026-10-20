@@ -72,9 +72,9 @@ is at its loan limit, it tries your other libraries instead. If none of them can
 verify the card in Libby and run Borrow again for the rest.
 
 If Libby says a book couldn't be borrowed, bookhoard shows Libby's message beside it. Libby sometimes
-stops a card from borrowing for a while after a lot of borrowing and returning ("You appear to have
-borrowed and returned too many titles within a short period"). bookhoard stops at the first of those;
-try again later.
+stops one card from borrowing for a while after a lot of borrowing and returning ("You appear to have
+borrowed and returned too many titles within a short period"). When it does, bookhoard leaves that
+card alone for the rest of the run and borrows from your other libraries.
 
 If you already had one of the books on hold and bookhoard borrows it somewhere else, it cancels
 that hold, so Libby doesn't lend you a second copy later.

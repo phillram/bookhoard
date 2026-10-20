@@ -1367,6 +1367,11 @@
 
   // Borrow (or hold) one book from the list screen. Returns { ok, result }, { skip: why } when a
   // library card needs verifying and no other library can lend it, or { wait: why } for a sign-in.
+  // Libraries whose card Libby refused a borrow on during this run (after a lot of borrowing and
+  // returning, or at the loan limit): { library name: why }. Other cards can still lend.
+  const refusedCards = new Map();
+  const CARD_REFUSED = /too many titles|short period|reached your loans? limit/i;
+
   async function borrowOne(book, listPath) {
     if (location.pathname !== listPath && !(await backToList(listPath))) return { result: 'could not get back to the list' };
     const card = listedBooks().find(b => b.titleId === book.titleId)?.card;
@@ -1388,6 +1393,10 @@
     await settle(10000);
     let switched = null;
     const tried = [];
+    // Why each library couldn't take it, for the skip message: { why: [libraries] }.
+    const reasons = new Map();
+    const because = (why, library) => { tried.push(library); reasons.set(why, [...(reasons.get(why) || []), library]); };
+    const whyNot = () => [...reasons].map(([why, libs]) => `${why} (${libs.join(', ')})`).join('; ');
     // The card's count on the borrow screen ("0 / 15 loans", "1 / 15 holds"): at its limit, the
     // card can't take this book, so another library has to.
     const cardFull = () => {
@@ -1402,12 +1411,18 @@
       if (onAccountScreen()) return { wait: 'Libby wants you to sign in' };
       const needsVerifying = !!verify();
       const full = !needsVerifying && confirmButton() ? cardFull() : '';
-      if (full) {
+      const refused = !needsVerifying && confirmButton() && !/hold/i.test(txt(confirmButton())) ? refusedCards.get(txt(libraryNameButton())) : '';
+      if (full || refused) {
         const library = txt(libraryNameButton()) || 'this library';
-        log(`  your card at ${library} is at its ${full === 'loans' ? 'loan' : 'hold'} limit`);
-        tried.push(library);
+        if (full) {
+          log(`  your card at ${library} is at its ${full === 'loans' ? 'loan' : 'hold'} limit`);
+          because(`${full === 'loans' ? 'loan' : 'hold'} limit reached`, library);
+        } else {
+          log(`  Libby refused your card at ${library} earlier in this run (${refused}), so not that one`);
+          because(refused, library);
+        }
         const next = await chooseAnotherLibrary(true, tried);
-        if (!next) return { skip: `${full === 'loans' ? 'loan' : 'hold'} limit reached (${tried.join(', ')})` };
+        if (!next) return { skip: whyNot() };
         switched = next;
         log(`  switched to ${next.library}` + (next.hold ? ' (for a hold there)' : ', which has a copy'));
         await settle(5000);
@@ -1432,6 +1447,7 @@
       if (verify()) continue;
       const confirm = confirmButton();
       if (!confirm) return { result: "Libby's borrow screen didn't show a Borrow button" };
+      const pressedAt = txt(libraryNameButton());
       const what = pressBorrow(confirm);
       log(`  confirming: ${what}${switched ? ` (at ${switched.library})` : ''}`);
       // Done when Libby shows Keep Browsing or "Borrowed until ..." / a placed hold. It may ask to
@@ -1466,6 +1482,11 @@
       if (problem()) {
         const why = problem();
         log(`  not done: ${why}. Screen shows:`, onScreen());
+        if (CARD_REFUSED.test(why) && pressedAt && !refusedCards.has(pressedAt)) {
+          // That card is refused, not the book: try it again at your other libraries.
+          refusedCards.set(pressedAt, /limit/i.test(why) ? 'loan limit reached' : 'Libby is refusing borrows on this card for now');
+          return { retry: `${pressedAt}: ${why}` };
+        }
         return { result: why, limit: /limit|maximum|too many/i.test(why) };
       }
       if (verify()) { log('  Libby asked to verify the card after Borrow'); continue; }
@@ -1604,6 +1625,7 @@
   }
 
   async function borrowAll() {
+    refusedCards.clear();
     running = true;
     clearTimeout(closeTimer);
     mode = 'borrow';
@@ -1697,6 +1719,13 @@
             note(book, `skipped: ${r.skip}`);
             continue;
           }
+          if (r.retry) {
+            // Libby refused that card (not the book): try the book again at another library.
+            log(`  ${r.retry}. Trying your other libraries.`);
+            if (!onAccountScreen() && location.pathname !== listPath) await backToList(listPath);
+            i--;
+            continue;
+          }
           if (r.wait) {
             // Something only you can do in Libby (sign in): wait, then try again.
             fail(`${book.title}: ${r.wait}`);
@@ -1710,10 +1739,6 @@
           }
           note(book, r.ok ? r.result : `not borrowed: ${r.result}`, !!r.ok);
           failedInARow = r.ok ? 0 : failedInARow + 1;
-          if (!r.ok && /too many titles|short period|try again later/i.test(r.result)) {
-            ending = 'Libby is refusing borrows for now, so bookhoard stopped.';
-            break;
-          }
           if (r.holdsCancelled) dropped++;
           else if (r.ok && book.state === 'heldNow' && /^borrowed/.test(r.result)) heldBorrowed.push(book);
         } catch (err) {
