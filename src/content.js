@@ -1440,9 +1440,27 @@
       const outcome = () => txt(document.querySelector('.screen-title-circ-outcome'));
       const succeeded = () => /^(borrowed until|you('| ha)ve borrowed|hold placed|you('| a)re on the (wait ?list|hold))/i.test(outcome());
       const offer = () => topEls(/^cancel other holds$/i)[0];
+      // Libby's error screens also have Keep Browsing ("Something didn't work... Try Again"), so
+      // Keep Browsing alone doesn't mean it worked.
+      const problem = () => {
+        const shown = topEls(/^(something didn.t work|we encountered an unexpected problem)/i)[0] || topEls(/^try again$/i)[0];
+        const said = outcome();
+        if (shown || /limit|maximum|too many|unable|not able|can.t|couldn.t|unavailable|error/i.test(said)) {
+          const text = (activeScreen().innerText || '').replace(/\s+/g, ' ');
+          return said || text.match(/(something didn.t work[^.]*\.[^.]*\.?|[^.]*\blimit\b[^.]*\.)/i)?.[0]?.trim() || 'Libby showed an error';
+        }
+        return '';
+      };
       let done = null;
-      for (const t = activeNow(); activeNow() - t < 15000 && !done && !offer() && !verify() && !onAccountScreen(); await sleep(200)) {
+      for (const t = activeNow(); activeNow() - t < 15000 && !done && !offer() && !verify() && !onAccountScreen() && !problem(); await sleep(200)) {
         done = topEls(/^keep browsing$/i)[0];
+      }
+      await sleep(300);  // let Libby finish drawing the result
+      log(`  Libby says: ${outcome() || '(nothing)'}`);
+      if (problem()) {
+        const why = problem();
+        log('  not done. Screen shows:', onScreen());
+        return { result: why, limit: /limit|maximum|too many/i.test(why) };
       }
       if (verify()) { log('  Libby asked to verify the card after Borrow'); continue; }
       interruptible = false;  // under way: see it through
@@ -1456,7 +1474,7 @@
         await sleep(800);
         done = topEls(/^keep browsing$/i)[0];
       }
-      if (!done && !succeeded() && !holdsCancelled) {
+      if (!succeeded() && !holdsCancelled && !(done && !problem())) {
         log('  no Keep Browsing. Screen shows:', onScreen(), outcome());
         return { result: outcome() || 'Libby did not confirm it', limit: /limit|maximum|too many/i.test(outcome()) };
       }
