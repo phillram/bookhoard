@@ -143,7 +143,9 @@
     // and the log from before that is what explains it.
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      api.storage.local.set({ lastLog: { at: Date.now(), results, trace: trace.slice(-1000) } }).catch(() => {});
+      try {
+        api.storage.local.set({ lastLog: { at: Date.now(), results, trace: trace.slice(-1000) } }).catch(() => {});
+      } catch {}  // (an out-of-date copy, after bookhoard was updated: see retire)
     }, 1000);
   };
   let earlier = null;  // the log from before Libby reloaded the page mid-run, for Copy log
@@ -158,6 +160,7 @@
     if (debug) console.log('[bookhoard]', ...args);
   };
   const fail = (...args) => {
+    if (args.some(stale)) { retire(); return; }
     bookDone(false);
     keep('ERROR ' + args.map(show).join(' '));
     console.error('[bookhoard]', ...args);
@@ -459,6 +462,11 @@
     Object.assign(btn.style, { position: 'absolute', visibility: 'hidden' });
     btn.addEventListener('click', onClick || (() => {
       closeHoardMenu();
+      if (!api.runtime?.id) {
+        retire();
+        alert('bookhoard was updated. Reload this Libby tab to use it.');
+        return;
+      }
       if (!running) start().catch(err => fail('run failed:', err));
       else if (mode === mine) requestStop();  // the other button is dimmed and does nothing
     }));
@@ -842,22 +850,25 @@
     setTimeout(() => { ui.copy.textContent = 'Copy log'; }, 1500);
   }
 
+  // The extension was reloaded or updated while this Libby tab stayed open: this copy is out of
+  // date and Chrome no longer answers it ("Extension context invalidated"). Take its UI away
+  // quietly; the new copy starts when the tab is reloaded.
+  const stale = err => /extension context invalidated/i.test(err?.message || String(err ?? ''));
+  function retire() {
+    clearInterval(syncTimer);
+    stopRequested = true;
+    choose?.(null);
+    for (const b of [navBtn, retBtn, borBtn, hoardBtn]) b?.remove();
+    closeHoardMenu();
+    host?.remove();
+  }
+  window.addEventListener('unhandledrejection', e => { if (stale(e.reason)) { e.preventDefault(); retire(); } });
+  window.addEventListener('error', e => { if (stale(e.error)) { e.preventDefault(); retire(); } });
+
   // Libby rebuilds its footer at times, so keep checking the button is still there.
   function syncUi() {
     if (!document.body) return;
-    // The extension was reloaded or updated: this copy is out of date, so take its UI away.
-    if (!api.runtime?.id) {
-      clearInterval(syncTimer);
-      stopRequested = true;
-      choose?.(null);
-      navBtn?.remove();
-      retBtn?.remove();
-      borBtn?.remove();
-      hoardBtn?.remove();
-      closeHoardMenu();
-      host?.remove();
-      return;
-    }
+    if (!api.runtime?.id) { retire(); return; }
     const bar = document.querySelector('.app-footer-nav-bar-controls');
     if (bar && ![navBtn, retBtn, borBtn, hoardBtn].every(b => b && bar.contains(b))) {
       buildNavButtons(bar);
