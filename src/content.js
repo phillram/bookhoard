@@ -603,7 +603,7 @@
         .pick-count { margin-left: auto; color: #8a8a8a; font-size: 12px; white-space: nowrap; }
         .pick-list { max-height: min(50vh, 420px); overflow-y: auto; border: 1px solid #2a2a2a; border-radius: 6px; }
         .pick-row { display: flex; align-items: center; gap: 8px; padding: 0 8px; height: 28px; cursor: pointer;
-                font-size: 13px; }
+                font-size: 13px; user-select: none; }
         .pick-row + .pick-row { border-top: 1px solid #2a2a2a; }
         .pick-row:hover { background: #242424; }
         .pick-row.off { opacity: .55; cursor: default; }
@@ -713,7 +713,10 @@
   // (null). rows: [{ loan, ticked, tag, muted, off }] (off: nothing to do, so it can't be checked).
   // quick: [{ id, label, pick: row => checked? }].
   function askPick(status, rows, quick, action) {
-    const boxes = rows.map(r => {
+    // Shift-click: every row between the last one clicked and this one takes this one's state.
+    let last = null;
+    let shift = false;
+    const boxes = rows.map((r, i) => {
       const row = document.createElement('label');
       row.className = 'pick-row';
       row.title = r.loan.title;
@@ -732,7 +735,18 @@
         tag.textContent = r.tag;
         row.append(tag);
       }
-      box.addEventListener('change', () => onPickChange?.());
+      // (A click on the title reaches the box as a second, made-up click: Shift is read from the real one.)
+      row.addEventListener('click', e => { if (e.isTrusted) shift = e.shiftKey; }, true);
+      box.addEventListener('change', () => {
+        if (shift && last !== null && last !== i) {
+          for (let k = Math.min(last, i); k <= Math.max(last, i); k++) {
+            if (!boxes[k].off) boxes[k].box.checked = box.checked;
+          }
+        }
+        last = i;
+        shift = false;
+        onPickChange?.();
+      });
       return { ...r, box, row };
     });
     ui.pickList.replaceChildren(...boxes.map(b => b.row));

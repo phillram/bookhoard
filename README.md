@@ -111,6 +111,7 @@ saved, and which format to get.
 
 ## Good to know
 
+- In any list of books, Shift-click to check or uncheck every book between two you click.
 - Choosing EPUB or PDF locks that loan to the format until you borrow the book again. That's
   how Libby works.
 - Audiobooks are skipped, and so are books Libby only lets you read in its app or on Kindle.
