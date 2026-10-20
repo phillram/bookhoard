@@ -107,7 +107,8 @@ saved, and which format to get.
 Click **Copy log** on the panel (or **Copy last log** in the options, once the panel has closed)
 and paste it into a
 [new issue](https://github.com/phillram/bookhoard/issues). It lists your book titles and what
-happened to each one, but not your download links.
+happened to each one, but not your download links. Problems come first, with the steps that led to
+each one. For every step of every book, check **Detailed log** in the options and run it again.
 
 ## License
 

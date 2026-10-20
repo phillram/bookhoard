@@ -121,13 +121,21 @@
   const deepestOf = list => list.filter(e => !list.some(o => o !== e && e.contains(o)));
   const ask = msg => api.runtime.sendMessage(msg);
 
-  // Logging. Errors always go to the console; with Debug on (options page) every step does too.
-  // Everything is also kept for the panel's Copy log button.
+  // Logging, for the panel's Copy log button. Errors always go to the console; with Debug on
+  // (options page) every step does too. A book's steps (the indented lines) are kept only when
+  // Debug is on or that book had a problem, so an ordinary log stays short.
   let debug = false;
   const trace = [];
+  const steps = [];  // the current book's steps, until we know how it went
   let saveTimer = 0;
   const keep = line => {
-    trace.push(new Date().toISOString().slice(11, 19) + ' ' + line);
+    const stamped = new Date().toISOString().slice(11, 19) + ' ' + line;
+    if (!debug && line.startsWith('  ')) {
+      steps.push(stamped);
+      if (steps.length > 200) steps.shift();
+      return;
+    }
+    trace.push(stamped);
     if (trace.length > 3000) trace.shift();
     // Saved as it goes (at most once a second): Libby reloads the page after "too many requests",
     // and the log from before that is what explains it.
@@ -138,11 +146,17 @@
   };
   let earlier = null;  // the log from before Libby reloaded the page mid-run, for Copy log
   const show = v => (v instanceof Error ? v.stack || v.message : typeof v === 'string' ? v : JSON.stringify(v));
+  // A book is finished: keep its steps if it had a problem, otherwise drop them.
+  const bookDone = ok => {
+    if (!ok) trace.push(...steps);
+    steps.length = 0;
+  };
   const log = (...args) => {
     keep(args.map(show).join(' '));
     if (debug) console.log('[bookhoard]', ...args);
   };
   const fail = (...args) => {
+    bookDone(false);
     keep('ERROR ' + args.map(show).join(' '));
     console.error('[bookhoard]', ...args);
   };
@@ -447,7 +461,7 @@
         .status { color: #b8b8b8; margin-bottom: 6px; }
         /* The list is always exactly 5 one-line rows tall and the buttons sit along the bottom edge,
            so nothing shifts while results come in and every click lands where you aimed. */
-        .list { height: calc(5 * 24px); overflow: hidden; }
+        .list { height: calc(5 * 24px); overflow-y: auto; }
         .bar { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px;
                border-top: 1px solid #333; }
         .bar .close { margin-left: auto; }
@@ -546,8 +560,9 @@
       return b;
     }));
     ui.pause.textContent = paused ? 'Resume' : 'Pause';
-    const SHOWN = 5;
-    const rows = results.slice(-SHOWN).reverse().map(r => {
+    // Problems first (all of them; the list scrolls), then the rest, newest first.
+    const problems = results.filter(r => !r.ok).reverse();
+    const rows = [...problems, ...results.filter(r => r.ok).reverse()].map(r => {
       const row = document.createElement('div');
       row.className = 'row';
       const name = document.createElement('strong');
@@ -560,7 +575,6 @@
       return row;
     });
     ui.list.replaceChildren(...rows);
-    ui.list.title = results.length > SHOWN ? `${results.length - SHOWN} earlier book(s) are in Copy log` : '';
     // The button that started the run says Stop; the other one is dimmed until it ends.
     for (const [btn, name, label] of [[navBtn, 'download', 'Download'], [retBtn, 'return', 'Return'], [borBtn, 'borrow', 'Borrow']]) {
       if (!btn) continue;
@@ -683,7 +697,7 @@
       `settings: ${JSON.stringify(settings)}`,
       '',
       'Results:',
-      ...results.map(r => `  ${r.ok ? 'OK  ' : 'SKIP'} ${r.title}: ${r.result}`),
+      ...[...results.filter(r => !r.ok), ...results.filter(r => r.ok)].map(r => `  ${r.ok ? 'OK  ' : 'SKIP'} ${r.title}: ${r.result}`),
       '',
       'File names:',
       ...names.map(n => `  ${n.time.slice(11, 19)} ${n.from} -> ${n.to}${n.error ? '  ERROR ' + n.error : ''}`),
@@ -845,6 +859,7 @@
       return `${downloaded} downloaded, ${skipped} skipped`;
     };
     const note = (loan, result, ok = false) => {
+      bookDone(ok);
       log(`${loan.title} [${loan.id}]: ${result}`);
       results.push({ title: loan.title, result, ok });
       if (ok) downloaded++;
@@ -1133,6 +1148,7 @@
     let returned = 0;
     const count = () => `${returned} returned, ${results.length - returned} not returned`;
     const note = (loan, result, ok = false) => {
+      bookDone(ok);
       log(`${loan.title} [${loan.id}]: ${result}`);
       results.push({ title: loan.title, result, ok });
       if (ok) returned++;
@@ -1357,6 +1373,8 @@
     const owns = holdOk && choices.filter(c => other(c) && !/^no copies/i.test(label(c))).sort((a, b) => days(a) - days(b))[0];
     const pick = now || owns;
     if (!pick) {
+      const others = choices.filter(other).length;
+      log(`  checked your other ${others} ${others === 1 ? 'library' : 'libraries'}: none can lend it now${holdOk ? ' or take a hold' : ''}`);
       // Nothing better: close the list (its Back, or by choosing the library that was already set).
       const back = [...document.querySelectorAll('.interview-block-back-button')].find(onTop) ||
         choices.find(c => txt(c).endsWith(current));
@@ -1470,7 +1488,7 @@
           log(`  switched to ${next.library}` + (next.hold ? ' (for a hold there)' : ', which has a copy'));
         }
         await settle(5000);
-        if (!next && needsVerifying) return { skip: `needs your ${tried[0]} card verified` };
+        if (!next && needsVerifying) return { skip: `needs your ${tried[0]} card verified (no other library of yours can lend it)` };
       }
       if (verify()) continue;
       const confirm = confirmButton();
@@ -1670,6 +1688,7 @@
       (notified ? `, ${notified} notify me` : '') +
       (dropped ? `, ${dropped} holds cancelled` : '') + `, ${results.filter(r => !r.ok).length} not`;
     const note = (book, result, ok = false) => {
+      bookDone(ok);
       log(`${book.title} [${book.titleId}]: ${result}`);
       results.push({ title: book.title, result, ok });
       if (ok && /^already/.test(result)) had++;
@@ -1788,10 +1807,12 @@
           try {
             const n = await cancelHoldsOn(book);
             log(`${book.title} [${book.titleId}]: ${n} hold${n === 1 ? '' : 's'} cancelled`);
+            bookDone(true);
             if (n) results.push({ title: book.title, result: `hold cancelled${n > 1 ? ` (${n})` : ''}`, ok: true });
             dropped += n;
           } catch (err) {
             fail(`${book.title}: hold not cancelled:`, err.message);
+            bookDone(false);
             results.push({ title: book.title, result: `not cancelled: ${err.message}`, ok: false });
             backToShelf({ emptyOk: true }).catch(() => {});
           }
