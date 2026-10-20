@@ -173,9 +173,15 @@
     const separate = settings?.footerButtons === 'separate';
     if (separate !== separateButtons) { separateButtons = separate; footerLayout = ''; }
   };
-  api.storage.local.get('settings').then(({ settings }) => useSettings(settings));
+  // Formats of the books with no EPUB or PDF, as last looked up (for Open in reader's button).
+  let noFileKnown = {};
+  api.storage.local.get(['settings', 'noFile']).then(({ settings, noFile }) => {
+    useSettings(settings);
+    noFileKnown = noFile || {};
+  });
   api.storage.onChanged.addListener(changes => {
     if (changes.settings) useSettings(changes.settings.newValue);
+    if (changes.noFile) noFileKnown = changes.noFile.newValue || {};
   });
   // What is on screen right now (for the log when a step fails).
   const onScreen = () => [...new Set([...document.querySelectorAll('button, a, [role=button]')]
@@ -900,6 +906,7 @@
     }
     // Open in reader only shows when you have Media Do loans (and while its run is going).
     if (readBtn) {
+      checkShelfFormats();
       const show = (running && mode === 'reader') || (!running && readerLoans().length > 0);
       readBtn.style.display = show ? '' : 'none';
     }
@@ -1457,7 +1464,40 @@
   // this tab to the reader instead), so for the run page-hook.js hands the address to bookhoard,
   // which opens the tab.
   const READER_BUTTON = /^read with media do$/i;
-  const readerLoans = () => readShelf().filter(l => READER_BUTTON.test(l.main));
+  // Books you can only read online: Media Do's (in its reader), and Libby's own reader only (its
+  // "ebook-overdrive", with no EPUB or PDF: opened at Libby's address for it, in a new tab).
+  // Kindle-only books aren't among them.
+  const libbyOnly = formats => !!formats?.includes('ebook-overdrive') && !formats.some(f => /^ebook-(epub|pdf|media-do)/.test(f));
+  const readerKind = loan => READER_BUTTON.test(loan.main) ? 'Media Do' : libbyOnly(noFileKnown[loan.titleId]?.f) ? 'Libby' : '';
+  const readerLoans = () => readShelf().filter(readerKind);
+  // Each loan on the shelf is looked up once (in the background, a few at a time), so Open in reader
+  // knows about Libby-only books without a Download list having seen them first.
+  const formatsChecked = new Set();
+  let checkingFormats = false;
+  async function checkShelfFormats() {
+    if (checkingFormats || running) return;
+    const unknown = readShelf().filter(l => !formatsChecked.has(l.titleId) && !READER_BUTTON.test(l.main) &&
+      !/audiobook/i.test(l.main) && !noFileKnown[l.titleId]).slice(0, 6);
+    if (!unknown.length) return;
+    checkingFormats = true;
+    try {
+      const learned = {};
+      await Promise.all(unknown.map(async l => {
+        formatsChecked.add(l.titleId);
+        const d = await ask({ type: 'media', overdriveId: l.titleId });
+        if (d?.formats?.length && !d.formats.some(f => /^ebook-(epub|pdf)/.test(f))) learned[l.titleId] = { f: d.formats, t: Date.now() };
+      }));
+      if (Object.keys(learned).length) {
+        const { noFile: kept = {} } = await api.storage.local.get('noFile');
+        noFileKnown = Object.fromEntries(Object.entries({ ...kept, ...learned }).sort((a, b) => b[1].t - a[1].t).slice(0, 1000));
+        await api.storage.local.set({ noFile: noFileKnown });
+      }
+    } catch (err) {
+      if (stale(err)) retire();
+    } finally {
+      checkingFormats = false;
+    }
+  }
   let readerUrl = null;
   window.addEventListener('message', e => {
     if (e.source === window && e.data?.bookhoard === 'reader' && typeof e.data.url === 'string' &&
@@ -1484,6 +1524,14 @@
     for (const t = activeNow(); activeNow() - t < 15000 && !readerUrl; ) await sleep(200);
     if (!readerUrl) return "Libby didn't open the reader";
     if (!(await ask({ type: 'openReader', url: readerUrl }))) return "the reader's tab didn't open";
+    return null;
+  }
+
+  // A book only Libby's own reader opens: its Open Book goes to libbyapp.com/open/loan/<card>/<book>,
+  // in this tab. Opened at that address in a tab of its own instead; nothing here is pressed.
+  async function openInLibby(loan) {
+    const [card, book] = loan.id.split('-');
+    if (!(await ask({ type: 'openLibby', card, book }))) return "Libby's reader tab didn't open";
     return null;
   }
 
@@ -1525,20 +1573,35 @@
         ok = false;
         return;
       }
+      // Books not looked up yet: their formats tell if Libby's own reader is the only way.
+      const unknown = readShelf().filter(l => !READER_BUTTON.test(l.main) && !/audiobook/i.test(l.main) && !noFileKnown[l.titleId]);
+      if (unknown.length) render('Checking which books can only be read online…');
+      const learned = {};
+      for (let k = 0; k < unknown.length; k += 6) {
+        await Promise.all(unknown.slice(k, k + 6).map(async l => {
+          const d = await ask({ type: 'media', overdriveId: l.titleId });
+          if (d?.formats?.length && !d.formats.some(f => /^ebook-(epub|pdf)/.test(f))) learned[l.titleId] = { f: d.formats, t: Date.now() };
+        }));
+      }
+      if (Object.keys(learned).length) {
+        const { noFile: kept = {} } = await api.storage.local.get('noFile');
+        noFileKnown = Object.fromEntries(Object.entries({ ...kept, ...learned }).sort((a, b) => b[1].t - a[1].t).slice(0, 1000));
+        await api.storage.local.set({ noFile: noFileKnown });
+      }
       const loans = readerLoans();
       if (!loans.length) {
-        ending = 'None of your loans are Media Do books (the ones that say "Read With Media Do").';
+        ending = "None of your loans are read online only (in Media Do's reader or Libby's).";
         return;
       }
-      const todo = await askPick("Check the books to open in Media Do's reader. Each opens in a tab of its own.",
-        loans.map(loan => ({ loan, ticked: true, tag: '' })),
+      const todo = await askPick('Check the books to open, each in a tab of its own: Media Do books in its reader, the others in Libby\'s.',
+        loans.map(loan => ({ loan, ticked: true, tag: readerKind(loan) })),
         [{ id: 'all', label: 'All', pick: () => true },
          { id: 'none', label: 'None', pick: () => false }],
         { label: k => `Open ${k}`, danger: false });
       if (!todo) { cancelled = true; return; }
       const why = await reachShelf();
       if (why) { ending = why; ok = false; return; }
-      log(`opening ${todo.length} of ${loans.length} Media Do books:`, todo.map(l => l.title));
+      log(`opening ${todo.length} of ${loans.length} read-online books:`, todo.map(l => `${l.title} (${readerKind(l)})`));
       render(`Opening… ${count()}`);
       // For the whole run (a late reader address is caught too, never left to Libby).
       document.documentElement.dataset.bookhoardCapture = '1';
@@ -1552,8 +1615,9 @@
         if (onAccountScreen()) { ending = ACCOUNT_SCREEN_STOP; fail(ending, location.pathname); break; }
         try {
           interruptible = true;
-          const problem = await openInReader(loan);
-          note(loan, problem ? `not opened: ${problem}` : 'opened in a new tab', !problem);
+          const libby = readerKind(loan) === 'Libby';
+          const problem = libby ? await openInLibby(loan) : await openInReader(loan);
+          note(loan, problem ? `not opened: ${problem}` : `opened in ${libby ? "Libby's" : "Media Do's"} reader, in a new tab`, !problem);
         } catch (err) {
           if (err instanceof StopNow) { ending = 'Stopped.'; break; }
           fail(`${loan.title}:`, err);

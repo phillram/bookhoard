@@ -317,6 +317,13 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         await api.tabs.create({ url: u.href, active: false, index: sender?.tab ? sender.tab.index + 1 : undefined });
         return true;
       }
+      case 'openLibby': {
+        // A book only Libby's own reader opens: Libby's address for that reader, in a tab of its own.
+        if (!/^\d+$/.test(String(msg.card)) || !/^\d+$/.test(String(msg.book))) return false;
+        await api.tabs.create({ url: `https://libbyapp.com/open/loan/${msg.card}/${msg.book}`, active: false,
+          index: sender?.tab ? sender.tab.index + 1 : undefined });
+        return true;
+      }
       case 'expect': {
         // The page is about to click EPUB/PDF for this book.
         pending = { overdriveId: msg.overdriveId, format: msg.format, at: Date.now() };
