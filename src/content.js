@@ -613,7 +613,11 @@
         .pick-row.off { opacity: .55; cursor: default; }
         .pick-row.off:hover { background: none; }
         .pick-row input { accent-color: #2a9d8f; margin: 0; flex: none; }
-        .pick-row .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .pick-row .t { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        /* Its number in the series, as Libby puts it ("1-6 in series"), just after the title. */
+        .pick-row .num { flex: none; color: #8a8a8a; font-size: 12px; }
+        .pick-row .t + .num, .pick-row .t:last-child { margin-right: auto; }
+        .pick-row .t + .nd { margin-left: auto; }
         .pick-row .nd { flex: none; color: #e3b25a; font-size: 12px; }
         .pick-row .nd.muted { color: #8a8a8a; }
         .pick-quick { display: contents; }
@@ -733,6 +737,12 @@
       t.className = 't';
       t.textContent = r.loan.title;
       row.append(box, t);
+      if (r.number) {
+        const num = document.createElement('span');
+        num.className = 'num';
+        num.textContent = r.number;
+        row.append(num);
+      }
       if (r.tag) {
         const tag = document.createElement('span');
         tag.className = r.muted ? 'nd muted' : 'nd';
@@ -2277,7 +2287,8 @@
       if (holds) question += `\n${holds} ${holds === 1 ? 'has' : 'have'} a waitlist, so ${holds === 1 ? 'it gets' : 'they get'} a hold instead.`;
       if (absent) question += `\n${absent} ${absent === 1 ? "isn't" : "aren't"} at your libraries: check ${absent === 1 ? 'it' : 'them'} to be notified if one gets ${absent === 1 ? 'it' : 'them'}.`;
       const todo = await askPick(question,
-        books.map(b => ({ loan: b, ticked: !searching && want(b) && (!firstEdition || firstEdition.has(b)), tag: label[b.state] || '', muted: b.state !== 'hold',
+        books.map(b => ({ loan: b, ticked: !searching && want(b) && (!firstEdition || firstEdition.has(b)),
+          number: !b.range ? '' : b.range[0] === b.range[1] ? `#${b.range[0]} in series` : `${b.range[0]}-${b.range[1]} in series`, tag: label[b.state] || '', muted: b.state !== 'hold',
           off: ['loaned', 'held', 'notified'].includes(b.state) })),
         // All: everything that can be done (borrow, hold, Notify Me). Notify me adds those to what's
         // checked; Available now checks only what can be borrowed right away.

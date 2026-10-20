@@ -100,7 +100,8 @@ can't be undone: you'd have to borrow the book again.
    series first.
 3. Check the books you want, then click **Borrow**. Books with a waitlist get a hold instead.
 
-Audiobooks aren't listed, and a book listed twice (two editions) is listed once: bookhoard borrows
+Each book shows its number in the series, as Libby does ("#3 in series", or "1-6 in series" for a
+collection). Audiobooks aren't listed, and a book listed twice (two editions) is listed once: bookhoard borrows
 the copy with an EPUB or PDF, so you can download it. On a search results page nothing starts
 checked, since the results can be anything that matched; a book's series is the better place to
 start.
