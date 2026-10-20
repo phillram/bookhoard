@@ -398,6 +398,10 @@
   let mode = 'download';  // which footer button started the current run
   let choose = null;      // while the panel is asking a question: call with the answer
   let choices = [];       // [{ label, value }] buttons shown for that question
+  // A run's progress: books done of the books picked ("10 of 50"), shown before its own counts.
+  let runDone = 0;
+  let runTotal = 0;
+  const progress = () => runTotal ? `${Math.min(runDone, runTotal)} of ${runTotal}: ` : '';
   let onPickChange = null;  // while picking books: refreshes the count and button
 
   // A download-tray icon drawn like Libby's own footer icons (64x64, same classes, so Libby's
@@ -1027,13 +1031,16 @@
     stopRequested = false;
     paused = false;
     results = [];
+    runDone = 0;
+    runTotal = 0;
     let downloaded = 0;
     const count = () => {
       const skipped = results.length - downloaded;
-      return `${downloaded} downloaded, ${skipped} skipped`;
+      return `${progress()}${downloaded} downloaded, ${skipped} skipped`;
     };
     const note = (loan, result, ok = false) => {
       bookDone(ok);
+      runDone++;
       log(`${loan.title} [${loan.id}]: ${result}`);
       results.push({ title: loan.title, result, ok });
       if (ok) downloaded++;
@@ -1194,6 +1201,7 @@
       const why = await reachShelf();
       if (why) { ending = why; ok = false; return; }
       let lost = false;
+      runTotal = todo.length;
       log(`${loans.length} loans on the shelf; downloading ${todo.length}${resume ? ' (carrying on)' : ''}:`,
         todo.map(l => l.title));
       render(`Working… ${count()}`);
@@ -1361,10 +1369,13 @@
     stopRequested = false;
     paused = false;
     results = [];
+    runDone = 0;
+    runTotal = 0;
     let returned = 0;
-    const count = () => `${returned} returned, ${results.length - returned} not returned`;
+    const count = () => `${progress()}${returned} returned, ${results.length - returned} not returned`;
     const note = (loan, result, ok = false) => {
       bookDone(ok);
+      runDone++;
       log(`${loan.title} [${loan.id}]: ${result}`);
       results.push({ title: loan.title, result, ok });
       if (ok) returned++;
@@ -1412,6 +1423,7 @@
       if (!todo) { cancelled = true; return; }
       const why = await reachShelf();
       if (why) { ending = why; ok = false; return; }
+      runTotal = todo.length;
       log(`returning ${todo.length} of ${loans.length} loans:`, todo.map(l => l.title));
       render(`Returning… ${count()}`);
 
@@ -1603,10 +1615,13 @@
     stopRequested = false;
     paused = false;
     results = [];
+    runDone = 0;
+    runTotal = 0;
     let opened = 0;
-    const count = () => `${opened} opened, ${results.length - opened} not`;
+    const count = () => `${progress()}${opened} opened, ${results.length - opened} not`;
     const note = (loan, result, ok = false) => {
       bookDone(ok);
+      runDone++;
       log(`${loan.title} [${loan.id}]: ${result}`);
       results.push({ title: loan.title, result, ok });
       if (ok) opened++;
@@ -1654,6 +1669,7 @@
       if (!todo) { cancelled = true; return; }
       const why = await reachShelf();
       if (why) { ending = why; ok = false; return; }
+      runTotal = todo.length;
       log(`opening ${todo.length} of ${loans.length} read-online books:`, todo.map(l => `${l.title} (${readerKind(l)})`));
       render(`Opening… ${count()}`);
       // For the whole run (a late reader address is caught too, never left to Libby).
@@ -2142,16 +2158,19 @@
     stopRequested = false;
     paused = false;
     results = [];
+    runDone = 0;
+    runTotal = 0;
     let borrowed = 0;
     let held = 0;
     let had = 0;  // already on your shelf by the time its turn came
     let notified = 0;  // tagged Notify Me
     let dropped = 0;  // leftover holds cancelled
-    const count = () => `${borrowed} borrowed, ${held} holds` + (had ? `, ${had} already yours` : '') +
+    const count = () => `${progress()}${borrowed} borrowed, ${held} holds` + (had ? `, ${had} already yours` : '') +
       (notified ? `, ${notified} notify me` : '') +
       (dropped ? `, ${dropped} holds cancelled` : '') + `, ${results.filter(r => !r.ok).length} not`;
     const note = (book, result, ok = false) => {
       bookDone(ok);
+      runDone++;
       log(`${book.title} [${book.titleId}]: ${result}`);
       results.push({ title: book.title, result, ok });
       if (ok && /^already/.test(result)) had++;
@@ -2202,6 +2221,7 @@
           return !n ? `Borrow ${k}` : n === k ? `Notify me for ${n}` : `Borrow ${k - n}, notify ${n}`;
         }, danger: false });
       if (!todo) { cancelled = true; return; }
+      runTotal = todo.length;
       log(`borrowing ${todo.length} of ${books.length}:`, todo.map(b => b.title));
       render(`Borrowing… ${count()}`);
 
