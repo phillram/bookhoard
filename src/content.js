@@ -1808,19 +1808,34 @@
     return false;
   }
 
-  // Libby adds cards as the list scrolls: scroll to the end until no more appear, then back to top.
+  // Libby adds cards as the list scrolls, a page at a time ("Page 2 of 3"): scroll to the end until
+  // the last page is in, then back to the top. Its heading says how many there are ("62 titles
+  // in"), and a freshly loaded Libby can be slow with the next page, so it's waited for (6 seconds
+  // with nothing new at most). Returns { cards, titles }: titles 0 when Libby doesn't say.
   async function loadWholeList() {
-    const scroller = activeScreen().querySelector('.scroller') || document.scrollingElement;
+    const screen = activeScreen();
+    const scroller = screen.querySelector('.scroller') || document.scrollingElement;
+    const cards = () => screen.querySelectorAll('.title-tile-shell').length;
+    const lastPage = () => {
+      const pages = [...(screen.innerText || '').matchAll(/page (\d+) of (\d+)/gi)];
+      return pages.length && Math.max(...pages.map(m => Number(m[1]))) >= Number(pages[0][2]);
+    };
+    const titles = Number((screen.innerText || '').match(/(\d+)\s+titles in/i)?.[1]) || 0;
+    const known = titles || /page \d+ of \d+/i.test(screen.innerText || '');
     let count = -1;
-    for (let still = 0, t = activeNow(); still < 3 && activeNow() - t < 20000; ) {
+    for (let still = 0, t = activeNow(); activeNow() - t < 30000; ) {
       scroller.scrollTop = scroller.scrollHeight;
       await sleep(500);
-      const now = listedBooks().length;
+      const now = cards();
       still = now === count ? still + 1 : 0;
       count = now;
+      const complete = known ? lastPage() || (titles && now >= titles) : still >= 3;
+      if ((complete && still >= 1) || still >= 12) break;
     }
     scroller.scrollTop = 0;
     await sleep(300);
+    log(`list: ${count} cards${titles ? ` of the ${titles} titles Libby lists` : ''}`);
+    return { cards: count, titles };
   }
 
   // One copy of each book: editions of the same book (same title; a card for a book you have
@@ -2268,7 +2283,7 @@
         await sleep(500);
       }
       const listPath = location.pathname;
-      await loadWholeList();
+      const loaded = await loadWholeList();
       let books = await dedupe(listedBooks());
       if (!books.length) { ending = 'No books to borrow on this page.'; ok = false; return; }
       log(`borrow: ${books.length} books on ${listPath}`);
@@ -2286,6 +2301,9 @@
       // Search results can be anything that matched, so nothing starts checked there.
       const searching = /\/query-/.test(listPath) && !/\/series-/.test(listPath);
       let question = 'Check the books to borrow.';
+      if (loaded.titles && loaded.cards < loaded.titles) {
+        question += `\nLibby only showed ${loaded.cards} of its ${loaded.titles} titles here. To see the rest, wait a moment, then press Borrow again.`;
+      }
       if (searching) question += '\nThese are search results, so nothing starts checked.';
       else if (editions) {
         question += `\nThis series comes in ${editions.length} editions (${editions.map(e => e.label).join(', ')}), ` +
