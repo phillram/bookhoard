@@ -118,7 +118,9 @@ bookhoard uses whichever of your libraries has a copy now, including through Lib
 libraries (the "lending partnership" screen). If a library card needs verifying, is at its loan
 limit, or Libby is refusing it for now ("You appear to have borrowed and returned too many titles
 within a short period"), bookhoard leaves that card alone for the rest of the run and tries your
-other libraries. If none of them can lend the book, it skips it and says why; sort the card out in
+other libraries. Libby's "too many titles" refusal can last days, so bookhoard remembers it for a
+day, in every tab, and doesn't try that card for a loan meanwhile. If none of them can lend the book,
+it skips it and says why; sort the card out in
 Libby and run Borrow again for the rest.
 
 If you already had one of the books on hold and bookhoard borrows it somewhere else, it cancels

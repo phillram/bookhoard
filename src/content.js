@@ -583,6 +583,7 @@
                  padding: 10px 12px; box-shadow: 0 4px 18px rgba(0,0,0,.5); }
         .panel.wide { width: min(680px, 94vw); }
         .status { color: #b8b8b8; margin-bottom: 6px; }
+        .status .progress { display: block; color: #e0e0e0; }
         /* The list is always exactly 5 one-line rows tall and the buttons sit along the bottom edge,
            so nothing shifts while results come in and every click lands where you aimed. */
         .list { height: calc(5 * 24px); overflow-y: auto; }
@@ -671,7 +672,18 @@
   function draw(status) {
     if (!ui) return;
     ui.panel.hidden = !panelOpen;
-    if (status) ui.status.textContent = status;
+    if (status) {
+      // The run's progress ("41 of 83: 40 downloaded, 1 skipped") on a line of its own.
+      const at = status.search(/\d+ of \d+: /);
+      if (at > 0) {
+        const progress = document.createElement('span');
+        progress.className = 'progress';
+        progress.textContent = status.slice(at);
+        ui.status.replaceChildren(status.slice(0, at), progress);
+      } else {
+        ui.status.textContent = status;
+      }
+    }
     ui.close.hidden = running;
     ui.copy.hidden = running;
     ui.stop.hidden = !running || !!choose;
@@ -1991,6 +2003,19 @@
   // returning, or at the loan limit): { library name: why }. Other cards can still lend.
   const refusedCards = new Map();
   const CARD_REFUSED = /too many titles|short period|reached your loans? limit/i;
+  // "Too many titles in a short period" lasts days, so it's remembered for a day (for every tab):
+  // runs meanwhile don't try that card for a loan. After a day it's tried once more. A full card
+  // isn't remembered: its loan count shows before anything is pressed.
+  const REFUSAL_KEPT_MS = 24 * 60 * 60 * 1000;
+  async function rememberedRefusals() {
+    const { refusedCards: saved = {} } = await api.storage.local.get('refusedCards');
+    return Object.entries(saved).filter(([, r]) => Date.now() - r.at < REFUSAL_KEPT_MS);
+  }
+  async function rememberRefusal(library) {
+    const kept = Object.fromEntries(await rememberedRefusals());
+    kept[library] = { at: Date.now() };
+    await api.storage.local.set({ refusedCards: kept });
+  }
 
   async function borrowOne(book, listPath) {
     if (location.pathname !== listPath && !(await backToList(listPath))) return { result: 'could not get back to the list' };
@@ -2126,6 +2151,7 @@
         if (CARD_REFUSED.test(why) && pressedAt && !refusedCards.has(pressedAt)) {
           // That card is refused, not the book: try it again at your other libraries.
           refusedCards.set(pressedAt, /limit/i.test(why) ? 'loan limit reached' : 'Libby is refusing borrows on this card for now');
+          if (!/limit/i.test(why)) await rememberRefusal(pressedAt);
           return { retry: `Libby refused your card at ${pressedAt}` };
         }
         return { result: why, limit: /limit|maximum|too many/i.test(why) };
@@ -2311,6 +2337,11 @@
         await sleep(500);
       }
       const listPath = location.pathname;
+      for (const [library, r] of await rememberedRefusals()) {
+        refusedCards.set(library, 'Libby is refusing borrows on this card for now');
+        const hours = Math.max(1, Math.round((Date.now() - r.at) / 3600000));
+        log(`skipping ${library} for loans: Libby refused it ${hours} hour${hours === 1 ? '' : 's'} ago (tried again after a day)`);
+      }
       const loaded = await loadWholeList();
       const read = listedBooks();
       const skipped = Object.entries(listSkips).map(([why, n]) => `${n} ${why}`).join(', ');
