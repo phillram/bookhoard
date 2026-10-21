@@ -1785,6 +1785,9 @@
         titleId: link.match(/\/(\d+)\/?$/)[1],
         series: txt(card.querySelector('.series-number')).match(/#(\d+)/)?.[1] || '',
         range: (m => m && (m[1] ? [+m[1], +m[1]] : [+m[2], +m[3]]))(all.match(/(?:#(\d+)|(\d+)\s*[-\u2013]\s*(\d+))\s+in series/i)),
+        // Libby's reading history on the card: you've had it before ("Borrowed 22 Apr", "Borrowed
+        // Today", "Borrowed In 2020", "Returned Today"). The "borrowed" tag isn't always added.
+        history: all.match(/\b(?:borrowed|returned)\s+(?:today|yesterday|in \d{4}|\d{1,2}\s+[a-z]{3,}(?:\s+\d{4})?)\b/i)?.[0] || '',
         state, card,
       });
     }
@@ -2324,6 +2327,10 @@
       const label = { hold: 'waitlist: places a hold', loaned: 'on your shelf', held: 'on hold', heldNow: 'on hold: borrow now',
         notify: 'not at your libraries', notified: 'notify me: already on' };
       const want = b => b.state === 'borrow' || b.state === 'hold' || b.state === 'heldNow';
+      // Books you've had before start unchecked: borrowing one again is your choice.
+      const hadBefore = b => !!b.history && want(b);
+      const fresh = b => want(b) && !hadBefore(b);
+      const before = books.filter(hadBefore).length;
       const holds = books.filter(b => b.state === 'hold').length;
       const absent = books.filter(b => b.state === 'notify').length;
       // Search results can be anything that matched, so nothing starts checked there.
@@ -2338,17 +2345,21 @@
           `shortest first. Only the ${editions[0].label} start checked.`;
       }
       if (holds) question += `\n${holds} ${holds === 1 ? 'has' : 'have'} a waitlist, so ${holds === 1 ? 'it gets' : 'they get'} a hold instead.`;
+      if (before) question += `\n${before} you've borrowed before, so ${before === 1 ? 'it starts' : 'they start'} unchecked.`;
       if (absent) question += `\n${absent} ${absent === 1 ? "isn't" : "aren't"} at your libraries: check ${absent === 1 ? 'it' : 'them'} to be notified if one gets ${absent === 1 ? 'it' : 'them'}.`;
       const todo = await askPick(question,
-        books.map(b => ({ loan: b, ticked: !searching && want(b) && (!firstEdition || firstEdition.has(b)),
+        books.map(b => ({ loan: b, ticked: !searching && fresh(b) && (!firstEdition || firstEdition.has(b)),
           number: !b.range ? '' : b.range[0] !== b.range[1] ? `${b.range[0]}-${b.range[1]} in series`
-            : b.number === null ? `#${b.range[0]} in series` : '', tag: label[b.state] || '', muted: b.state !== 'hold',
+            : b.number === null ? `#${b.range[0]} in series` : '',
+          tag: (hadBefore(b) ? `had before: ${b.history.replace(/^\w+/, w => w.toLowerCase()).replace(/\b(Today|Yesterday|In)\b/, w => w.toLowerCase())}` : '') ||
+            label[b.state] || '', muted: b.state !== 'hold' || hadBefore(b),
           off: ['loaned', 'held', 'notified'].includes(b.state) })),
         // All: everything that can be done (borrow, hold, Notify Me). Notify me adds those to what's
         // checked; Available now checks only what can be borrowed right away.
         [{ id: 'all', label: 'All', pick: r => want(r.loan) || r.loan.state === 'notify' },
-         { id: 'now', label: 'Available now', pick: r => r.loan.state === 'borrow' || r.loan.state === 'heldNow' },
-         ...(editions || []).map((e, k) => ({ id: `edition-${k}`, label: e.label, pick: r => e.books.includes(r.loan) && want(r.loan) })),
+         { id: 'now', label: 'Available now', pick: r => (r.loan.state === 'borrow' || r.loan.state === 'heldNow') && !hadBefore(r.loan) },
+         ...(editions || []).map((e, k) => ({ id: `edition-${k}`, label: e.label, pick: r => e.books.includes(r.loan) && fresh(r.loan) })),
+         ...(before ? [{ id: 'before', label: 'Borrowed before', pick: r => r.box.checked || hadBefore(r.loan) }] : []),
          ...(absent ? [{ id: 'notify', label: 'Notify me', pick: r => r.box.checked || r.loan.state === 'notify' }] : []),
          { id: 'none', label: 'None', pick: () => false }],
         { label: (k, picked) => {
