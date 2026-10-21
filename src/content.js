@@ -1754,13 +1754,17 @@
   }
   // Book cards on the current screen, read into { title, titleId, series, state, card }.
   // state: 'borrow', 'hold' (waitlist), 'loaned' (already on your shelf), 'held' (already on hold).
+  // Why cards were left out, last time the list was read (for the log): { reason: count }.
+  let listSkips = {};
   function listedBooks() {
     const books = [];
+    listSkips = {};
+    const skip = why => { listSkips[why] = (listSkips[why] || 0) + 1; };
     // Your loans, from the shelf cards Libby keeps in the page: a series page can still show a book
     // you've just borrowed as available.
     const onLoan = new Set(readShelf().map(l => l.titleId));
     for (const card of activeScreen().querySelectorAll('.title-tile-shell')) {
-      if (!card.getClientRects().length) continue;
+      if (!card.getClientRects().length) { skip('not shown'); continue; }
       const cover = [...card.querySelectorAll('*')].find(e => COVER.test(txt(e)));
       const link = [...card.querySelectorAll('a[href]')].map(a => a.getAttribute('href')).find(h => /\/\d+\/?$/.test(h));
       const buttons = [...card.querySelectorAll('button, a, [role=button]')];
@@ -1773,9 +1777,9 @@
       }
       if (/on your loans shelf/i.test(all) || onLoan.has(link?.match(/\/(\d+)\/?$/)?.[1])) state = 'loaned';
       else if (/on your holds shelf|on hold/i.test(all)) state = state === 'borrow' ? 'heldNow' : 'held';
-      if (!state || !cover || !link) continue;
+      if (!state || !cover || !link) { skip(!cover ? 'no cover' : !link ? 'no link' : 'no Borrow, Place Hold or Notify Me'); continue; }
       // Ebooks only: audiobooks (and magazines) aren't for bookhoard ("Audiobook: '<title>'. Cover image.").
-      if (/^(audiobook|magazine|video)/i.test(txt(cover))) continue;
+      if (/^(audiobook|magazine|video)/i.test(txt(cover))) { skip('audiobook'); continue; }
       books.push({
         title: txt(cover).match(COVER)[1],
         titleId: link.match(/\/(\d+)\/?$/)[1],
@@ -2292,7 +2296,10 @@
       }
       const listPath = location.pathname;
       const loaded = await loadWholeList();
-      let books = await dedupe(listedBooks());
+      const read = listedBooks();
+      const skipped = Object.entries(listSkips).map(([why, n]) => `${n} ${why}`).join(', ');
+      log(`read ${read.length} books from the cards${skipped ? `; left out: ${skipped}` : ''}`);
+      let books = await dedupe(read);
       if (!books.length) { ending = 'No books to borrow on this page.'; ok = false; return; }
       log(`borrow: ${books.length} books on ${listPath}`);
       // Overlapping editions: listed shortest edition first, and only that one starts checked.
