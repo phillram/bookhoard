@@ -1813,17 +1813,25 @@
   // in"), and a freshly loaded Libby can be slow with the next page, so it's waited for (6 seconds
   // with nothing new at most). Returns { cards, titles }: titles 0 when Libby doesn't say.
   async function loadWholeList() {
-    const screen = activeScreen();
-    const scroller = screen.querySelector('.scroller') || document.scrollingElement;
-    const cards = () => screen.querySelectorAll('.title-tile-shell').length;
+    // Just after a page load Libby is still building the page ("Loading Library..."): wait for its
+    // cards and its heading ("62 titles in", or "Page 1 of 3") first, up to 10 seconds.
+    const counted = () => /\d+\s+titles in|page \d+ of \d+/i.test(activeScreen().innerText || '');
+    if (!counted()) {
+      render('Waiting for Libby to finish loading the page…');
+      for (const t = activeNow(); activeNow() - t < 10000 && !(counted() && activeScreen().querySelector('.title-tile-shell')); ) await sleep(250);
+    }
+    // (The screen is found again each time: Libby can swap it while loading.)
+    const screen = () => activeScreen();
+    const cards = () => screen().querySelectorAll('.title-tile-shell').length;
     const lastPage = () => {
-      const pages = [...(screen.innerText || '').matchAll(/page (\d+) of (\d+)/gi)];
+      const pages = [...(screen().innerText || '').matchAll(/page (\d+) of (\d+)/gi)];
       return pages.length && Math.max(...pages.map(m => Number(m[1]))) >= Number(pages[0][2]);
     };
-    const titles = Number((screen.innerText || '').match(/(\d+)\s+titles in/i)?.[1]) || 0;
-    const known = titles || /page \d+ of \d+/i.test(screen.innerText || '');
+    const titles = Number((screen().innerText || '').match(/(\d+)\s+titles in/i)?.[1]) || 0;
+    const known = titles || counted();
     let count = -1;
     for (let still = 0, t = activeNow(); activeNow() - t < 30000; ) {
+      const scroller = screen().querySelector('.scroller') || document.scrollingElement;
       scroller.scrollTop = scroller.scrollHeight;
       await sleep(500);
       const now = cards();
@@ -1832,7 +1840,7 @@
       const complete = known ? lastPage() || (titles && now >= titles) : still >= 3;
       if ((complete && still >= 1) || still >= 12) break;
     }
-    scroller.scrollTop = 0;
+    (screen().querySelector('.scroller') || document.scrollingElement).scrollTop = 0;
     await sleep(300);
     log(`list: ${count} cards${titles ? ` of the ${titles} titles Libby lists` : ''}`);
     return { cards: count, titles };
