@@ -581,6 +581,7 @@
         .panel { pointer-events: auto; width: min(420px, 92vw);
                  background: #1c1c1c; color: #e0e0e0; border: 1px solid #333; border-radius: 10px;
                  padding: 10px 12px; box-shadow: 0 4px 18px rgba(0,0,0,.5); }
+        .panel.wide { width: min(680px, 94vw); }
         .status { color: #b8b8b8; margin-bottom: 6px; }
         /* The list is always exactly 5 one-line rows tall and the buttons sit along the bottom edge,
            so nothing shifts while results come in and every click lands where you aimed. */
@@ -606,14 +607,14 @@
         .pick-tools button:hover { border-color: #2a9d8f; }
         .pick-count { margin-left: auto; color: #8a8a8a; font-size: 12px; white-space: nowrap; }
         .pick-list { max-height: min(50vh, 420px); overflow-y: auto; border: 1px solid #2a2a2a; border-radius: 6px; }
-        .pick-row { display: flex; align-items: center; gap: 8px; padding: 0 8px; height: 28px; cursor: pointer;
+        .pick-row { display: flex; align-items: center; gap: 8px; padding: 4px 8px; min-height: 28px; cursor: pointer;
                 font-size: 13px; user-select: none; }
         .pick-row + .pick-row { border-top: 1px solid #2a2a2a; }
         .pick-row:hover { background: #242424; }
         .pick-row.off { opacity: .55; cursor: default; }
         .pick-row.off:hover { background: none; }
         .pick-row input { accent-color: #2a9d8f; margin: 0; flex: none; }
-        .pick-row .t { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .pick-row .t { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
         /* Its number in the series, as Libby puts it ("1-6 in series"), just after the title. */
         .pick-row .num { flex: none; color: #8a8a8a; font-size: 12px; }
         .pick-row .t + .num, .pick-row .t:last-child { margin-right: auto; }
@@ -677,6 +678,7 @@
     ui.stop.disabled = stopRequested;
     ui.pause.hidden = !running || stopRequested || !!choose;
     ui.picker.hidden = !onPickChange;
+    ui.panel.classList.toggle('wide', !!onPickChange);
     ui.list.hidden = !!onPickChange;
     ui.choices.replaceChildren(...(choose ? choices : []).map(c => {
       const b = document.createElement('button');
@@ -1825,41 +1827,47 @@
   // doesn't show its series number, so that can't be part of it) are merged.
   // If you already have any edition, that's the one shown (so you don't borrow a second copy);
   // otherwise one you can borrow now beats a waitlisted one.
+  // A series list in a steady order. Each book's own number comes from its title when it has one
+  // ("Volume 7", "Issue 3", "Book One"): Libby's "#n in series" can be wrong (several volumes all
+  // "#1"). Books are grouped by what comes before that number ("..., Volume", "...: Reborn, Volume",
+  // "... Micro-Series, Issue"), in the order the groups first appear, each in number order.
   // A series sold in overlapping editions (Saga: Volumes of 6 issues, Books of 18, a Compendium of
-  // 54): its books grouped by edition (the title without its last number), shortest edition first,
-  // each in number order. Null for a series in one edition.
+  // 54) is ordered shortest edition first instead; that needs an edition of real collections (its
+  // books usually span several issues) overlapping another one. Returns { books, editions }, with
+  // editions null unless so.
   const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
     'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
-  function editionsOf(books) {
-    const ranged = books.filter(b => b.range);
-    const overlap = ranged.some(a => ranged.some(b => a !== b && a.range[0] <= b.range[1] && b.range[0] <= a.range[1]));
-    if (!overlap) return null;
-    const last = new RegExp(`[\\s,:#-]*(\\d+|${NUMBER_WORDS.join('|')})\\s*$`, 'i');
-    const nameOf = b => b.title.replace(last, '').trim();
-    const numberOf = b => {
-      const m = b.title.match(last)?.[1];
-      return !m ? (b.range?.[0] ?? Infinity) : /^\d+$/.test(m) ? Number(m) : NUMBER_WORDS.indexOf(m.toLowerCase());
-    };
+  const TITLE_NUMBER = new RegExp(`^(.*?\\b(?:volume|vol\\.?|book|issue|part|chapter|no\\.?|#))\\s*(\\d+|${NUMBER_WORDS.join('|')})\\b`, 'i');
+  function arrangeSeries(books) {
+    for (const b of books) {
+      const m = b.title.match(TITLE_NUMBER);
+      b.group = m ? m[1].trim() : b.title.replace(/[\s,:]*\d+\s*$/, '').trim();
+      b.number = m ? (/^\d+$/.test(m[2]) ? Number(m[2]) : NUMBER_WORDS.indexOf(m[2].toLowerCase())) : null;
+    }
     const groups = new Map();
     for (const b of books) {
-      if (!groups.has(nameOf(b))) groups.set(nameOf(b), []);
-      groups.get(nameOf(b)).push(b);
+      if (!groups.has(b.group)) groups.set(b.group, []);
+      groups.get(b.group).push(b);
     }
-    // An edition's size: its books' usual number of issues (unknown: last).
+    const order = b => b.number ?? b.range?.[0] ?? Infinity;
+    // An edition's size: its books' usual number of issues (unknown: 1).
     const size = g => {
       const spans = g.filter(b => b.range).map(b => b.range[1] - b.range[0] + 1).sort((x, y) => x - y);
-      return spans.length ? spans[Math.floor(spans.length / 2)] : Infinity;
+      return spans.length ? spans[Math.floor(spans.length / 2)] : 1;
     };
-    const editions = [...groups.entries()]
-      .map(([name, g]) => ({ name, size: size(g), books: g.sort((a, b) => numberOf(a) - numberOf(b) || (a.range?.[0] ?? 0) - (b.range?.[0] ?? 0)) }))
-      .sort((a, b) => a.size - b.size);
+    let list = [...groups.entries()].map(([name, g]) => ({ name, size: size(g), books: g.sort((a, b) => order(a) - order(b)) }));
+    const covers = g => g.books.filter(b => b.range);
+    const overlaps = (a, b) => covers(a).some(x => covers(b).some(y => x.range[0] <= y.range[1] && y.range[0] <= x.range[1]));
+    const editions = list.some(g => g.size > 1 && list.some(o => o !== g && overlaps(g, o)));
+    if (!editions) return { books: list.flatMap(g => g.books), editions: null };
+    list = list.sort((a, b) => a.size - b.size);
     // Named for the quick buttons by the edition's last word: Volumes, Books, Compendium.
-    for (const e of editions) {
+    for (const e of list) {
       const word = e.name.match(/([A-Za-z]+)\W*$/)?.[1] || e.name;
       e.label = e.books.length > 1 && !/s$/i.test(word) ? word + 's' : word;
     }
-    for (const e of editions) if (editions.filter(o => o.label === e.label).length > 1) e.label = e.name;
-    return editions;
+    for (const e of list) if (list.filter(o => o.label === e.label).length > 1) e.label = e.name;
+    return { books: list.flatMap(g => g.books), editions: list };
   }
 
   // One of each title (a list can show two editions of the same book): the one you have, else one
@@ -2265,11 +2273,10 @@
       if (!books.length) { ending = 'No books to borrow on this page.'; ok = false; return; }
       log(`borrow: ${books.length} books on ${listPath}`);
       // Overlapping editions: listed shortest edition first, and only that one starts checked.
-      const editions = editionsOf(books);
-      if (editions) {
-        books = editions.flatMap(e => e.books);
-        log('editions:', editions.map(e => `${e.label} (${e.books.length}, ${e.size} issues each)`));
-      }
+      const arranged = arrangeSeries(books);
+      books = arranged.books;
+      const editions = arranged.editions;
+      if (editions) log('editions:', editions.map(e => `${e.label} (${e.books.length}, ${e.size} issues each)`));
       const firstEdition = editions ? new Set(editions[0].books) : null;
       const label = { hold: 'waitlist: places a hold', loaned: 'on your shelf', held: 'on hold', heldNow: 'on hold: borrow now',
         notify: 'not at your libraries', notified: 'notify me: already on' };
@@ -2288,7 +2295,8 @@
       if (absent) question += `\n${absent} ${absent === 1 ? "isn't" : "aren't"} at your libraries: check ${absent === 1 ? 'it' : 'them'} to be notified if one gets ${absent === 1 ? 'it' : 'them'}.`;
       const todo = await askPick(question,
         books.map(b => ({ loan: b, ticked: !searching && want(b) && (!firstEdition || firstEdition.has(b)),
-          number: !b.range ? '' : b.range[0] === b.range[1] ? `#${b.range[0]} in series` : `${b.range[0]}-${b.range[1]} in series`, tag: label[b.state] || '', muted: b.state !== 'hold',
+          number: !b.range ? '' : b.range[0] !== b.range[1] ? `${b.range[0]}-${b.range[1]} in series`
+            : b.number === null ? `#${b.range[0]} in series` : '', tag: label[b.state] || '', muted: b.state !== 'hold',
           off: ['loaned', 'held', 'notified'].includes(b.state) })),
         // All: everything that can be done (borrow, hold, Notify Me). Notify me adds those to what's
         // checked; Available now checks only what can be borrowed right away.
