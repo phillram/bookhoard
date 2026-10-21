@@ -834,7 +834,7 @@
     const oneWidth = Math.min(last.offsetWidth, gap);
     const mode = separateButtons && after + shown.length * step <= limit ? 'row' : oneWidth >= iconWidth + 8 ? 'one' : 'one-above';
     const layout = [step, last.offsetLeft, last.offsetTop, last.offsetWidth, last.offsetHeight, innerWidth,
-      iconWidth, mode, mode === 'one' ? Math.round(gap) : '', shown.length].join();
+      iconWidth, mode, mode === 'one' ? Math.round(gap) : '', mode === 'row' ? shown.length : ''].join();
     if (layout !== footerLayout) { footerLayout = layout; hide(); return; }  // still settling
     const cs = icon && getComputedStyle(icon);
     const put = (btn, left, top, width) => {
@@ -1803,6 +1803,8 @@
   function listingHere() {
     if (shelfPath() || /^\/shelf\//.test(location.pathname) || onAccountScreen() || /\/request/.test(location.pathname)) return false;
     if (bookPage()) return !!seriesLink();
+    // A series page, even before Libby has filled in its cards' Borrow buttons.
+    if (/\/series-\d+\//.test(location.pathname) && activeScreen().querySelector('.title-tile-shell')) return true;
     // Libby's Borrow on a card may be a button or a link (to the borrow screen).
     let n = 0;
     for (const b of activeScreen().querySelectorAll('.title-tile-shell :is(a, button, [role=button])')) {
@@ -1843,6 +1845,17 @@
       count = now;
       const complete = known ? lastPage() || (titles && now >= titles) : still >= 3;
       if ((complete && still >= 1) || still >= 12) break;
+    }
+    // Libby draws the cards first and each book's availability (Borrow, Place Hold, Notify Me) a
+    // moment later: wait until every card has it (up to 15 seconds; 3 seconds with no change ends it).
+    const pending = () => [...screen().querySelectorAll('.title-tile-shell')].filter(card =>
+      ![...card.querySelectorAll('button, a, [role=button]')].some(b => BORROW_BUTTON.test(txt(b)) || NOTIFY_BUTTON.test(txt(b)) ||
+        /^(open book|open in libby|open audiobook|read with)/i.test(txt(b))) &&
+      !/on your (loans|holds) shelf|on hold/i.test(txt(card))).length;
+    for (let left = pending(), last = -1, still = 0, t = activeNow(); left && still < 6 && activeNow() - t < 15000; left = pending()) {
+      if (left === last) still++; else { still = 0; last = left; }
+      render(`Waiting for Libby to show which books can be borrowed (${left} to go)…`);
+      await sleep(500);
     }
     (screen().querySelector('.scroller') || document.scrollingElement).scrollTop = 0;
     await sleep(300);
