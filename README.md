@@ -78,6 +78,11 @@ Most books come as an `.acsm` file. Open it in
 [Adobe Digital Editions](https://www.adobe.com/solutions/ebook/digital-editions.html) to get the
 book itself. A few come as a plain `.epub` or `.pdf`, ready to read.
 
+Next to each book, bookhoard saves a small `.overdrive.json` file with the book's details from
+Libby's catalog: ISBN, series and number, publisher, date and the full description. Tools that tidy
+an ebook library can use it to fill in the right details. Turn it off in the options if you don't
+want it.
+
 Libby blocks downloads for a while if you take too many too quickly, so bookhoard takes a short
 break every few books (2 minutes after every 10, unless you change it in the options). If Libby
 asks it to slow down anyway, bookhoard waits two minutes and carries on.
@@ -157,6 +162,7 @@ Click the bookhoard icon in your browser's toolbar.
 - **Save in**: a folder inside your Downloads folder.
 - **Format**: EPUB or PDF first, or EPUB only. **If the file already exists**: keep both, or
   replace it.
+- **Save each book's details next to it**: the `.overdrive.json` file beside each download.
 - **Pause … seconds after every … books**: the downloads' break. 0 turns it off.
 - **Buttons in Libby**: one bookhoard button with a menu, or separate buttons.
 - **Open in reader**: one book at a time, or all at once.

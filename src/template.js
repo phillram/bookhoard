@@ -8,6 +8,7 @@ export const DEFAULTS = {
   template: '{title} - {author}',
   formatOrder: 'epub-pdf',         // 'epub-pdf' | 'epub' | 'pdf-epub'
   conflict: 'uniquify',            // 'uniquify' | 'overwrite'
+  saveDetails: true,               // save each book's details (.overdrive.json) next to it
   batchSize: 10,                   // pause after this many books...
   batchPause: 120,                 // ...for this many seconds (0 = never pause)
   autoClose: 5,                    // close the panel this many seconds after a run (0 = keep it open)

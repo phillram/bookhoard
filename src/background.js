@@ -2,7 +2,7 @@
 // questions (book details, was this already downloaded, which format is about to be chosen).
 
 import { DEFAULTS, buildPath } from './template.js';
-import { fetchMedia, formatIds, parseFulfillUrl, variables } from './metadata.js';
+import { detailsFile, fetchMedia, formatIds, parseFulfillUrl, variables } from './metadata.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
 const sessionStore = api.storage.session ?? api.storage.local;
@@ -67,6 +67,7 @@ function remembered(id, book) {
 
 function bookOf(item) {
   if (known.has(item.id)) return known.get(item.id);
+  if (detailsDownloads.has(item.id) || detailsNames.has(item.url)) return null;  // our own details files
   for (const u of [item.url, item.finalUrl]) {
     if (!u) continue;
     const link = parseFulfillUrl(u) ? u : redirectedFrom.get(u);
@@ -103,6 +104,7 @@ async function targetFor(book) {
   const vars = variables(details, download, format);
   if (!vars.title) vars.title = shortUrl(url).split('_')[0];
   const filename = buildPath(settings, vars, download.ext);
+  book.filename = filename;  // the details file goes next to it
   log('naming', shortUrl(url), '->', filename, vars);
   await remember({ from: shortUrl(url), to: filename, lookedUp: !!details });
   return { filename, conflictAction: settings.conflict };
@@ -139,13 +141,51 @@ function recordDownload(overdriveId, downloadId) {
   return recordQueue;
 }
 
+// ---- Book details files ---------------------------------------------------------------------
+//
+// With "Save each book's details next to it" on, a finished book gets <its name>.overdrive.json
+// beside it: ISBN, series, publisher, the full description and so on, straight from OverDrive's
+// catalog, so an ebook manager can tidy it without guessing the edition. The file's entry is then
+// cleared from the browser's download list (the file stays), so the list shows only books.
+
+const detailsDownloads = new Set();
+const detailsNames = new Map();  // details file address -> its name (Chrome asks the naming hook below)
+async function saveDetails(book) {
+  const settings = await getSettings();
+  if (!settings.saveDetails || !book.filename || book.detailsSaved) return;
+  book.detailsSaved = true;
+  try {
+    const json = JSON.stringify(detailsFile(await media(book.download.overdriveId), book.download), null, 2);
+    // Chrome's background has no Blob URLs; Firefox's downloads refuse data: URLs.
+    const url = typeof URL.createObjectURL === 'function'
+      ? URL.createObjectURL(new Blob([json], { type: 'application/json' }))
+      : `data:application/json;charset=utf-8,${encodeURIComponent(json)}`;
+    const filename = book.filename.replace(/\.(acsm|epub|pdf)$/i, '') + '.overdrive.json';
+    detailsNames.set(url, filename);
+    const id = await api.downloads.download({ url, filename, conflictAction: 'overwrite', saveAs: false });
+    detailsDownloads.add(id);
+    log('saved details:', filename);
+  } catch (err) {
+    fail(`could not save the details file for ${book.download.overdriveId}:`, err);
+  }
+}
+
 // Remember finished downloads by book, so "already downloaded" works whatever address the browser
-// recorded.
+// recorded; and save the book's details file next to it.
 api.downloads.onChanged.addListener(async delta => {
   if (delta.state?.current !== 'complete') return;
   const [item] = await api.downloads.search({ id: delta.id });
+  if (detailsDownloads.has(delta.id) || detailsNames.has(item?.url)) {
+    detailsDownloads.delete(delta.id);
+    if (item?.url?.startsWith('blob:')) URL.revokeObjectURL(item.url);
+    detailsNames.delete(item?.url);
+    await api.downloads.erase({ id: delta.id }).catch(() => {});
+    return;
+  }
   const book = item && bookOf(item);
-  if (book) await recordDownload(book.download.overdriveId, delta.id);
+  if (!book) return;
+  await recordDownload(book.download.overdriveId, delta.id);
+  await saveDetails(book);
 });
 
 // OverDrive's download server answers 429 Too Many Requests when books are fetched too fast.
@@ -169,6 +209,11 @@ let retryRenames = async () => 0;
 if (api.downloads.onDeterminingFilename) {
   // Chrome and Edge: suggest the name as the download starts.
   api.downloads.onDeterminingFilename.addListener((item, suggest) => {
+    // A book's details file: Chrome lets this hook overrule the name it was asked for, so give it again.
+    if (detailsNames.has(item.url)) {
+      suggest({ filename: detailsNames.get(item.url), conflictAction: 'overwrite' });
+      return;
+    }
     const book = bookOf(item);
     if (!book) return;  // not a Libby download: leave it alone
     targetFor(book)

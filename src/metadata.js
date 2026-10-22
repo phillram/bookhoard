@@ -32,6 +32,33 @@ export function parseFulfillUrl(url) {
   };
 }
 
+// What goes in the .overdrive.json file saved next to a book: enough for an ebook manager to tidy
+// it without guessing which edition it is.
+export function detailsFile(media, download) {
+  const m = media || {};
+  const v = variables(media, download);
+  return {
+    overdriveId: v.overdriveId,
+    isbn: v.isbn,
+    isbns: [...new Set((m.formats || []).flatMap(f => [f.isbn, ...(f.identifiers || [])
+      .filter(i => i.type === 'ISBN').map(i => i.value)]).filter(Boolean))],
+    title: v.title,
+    subtitle: v.subtitle,
+    authors: v.authors,
+    creators: (m.creators || []).map(c => ({ name: c.name, role: c.role })),
+    series: v.series,
+    seriesNumber: v.seriesNumber,
+    publisher: v.publisher,
+    date: v.date || (m.publishDateText || ''),
+    language: v.language,
+    subjects: (m.subjects || []).map(s => s.name),
+    description: m.fullDescription || m.description || '',
+    format: v.format,
+    drm: v.drm,
+    savedBy: 'bookhoard',
+  };
+}
+
 function lastNameFirst(name) {
   const parts = name.trim().split(/\s+/);
   return parts.length > 1 ? `${parts[parts.length - 1]}, ${parts.slice(0, -1).join(' ')}` : name;
